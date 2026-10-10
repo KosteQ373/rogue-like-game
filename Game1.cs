@@ -20,7 +20,15 @@ public partial class Game1 : Game
     private ObjectPool<BasicEnemy> _basicEnemyPool;
     private ObjectPool<TankEnemy> _tankEnemyPool;
     private ObjectPool<FastEnemy> _fastEnemyPool;
+    private ObjectPool<ColossusBoss> _colossusBossPool;
     private ObjectPool<XpGem> _xpPool;
+
+    private Boss _activeBoss;
+    private float _bossTimer = 0f;
+    private const float BossInterval = 120f;
+    private float _spawnTempoTime = 0f;
+    private float _enemyHealthMultiplier = 1f;
+    private GameState _stateBeforeLevelUp = GameState.Playing;
 
     private float _spawnTimer;
     private float _spawnInterval = 2.5f;
@@ -55,6 +63,7 @@ public partial class Game1 : Game
         _basicEnemyPool = new ObjectPool<BasicEnemy>(150);
         _tankEnemyPool = new ObjectPool<TankEnemy>(50);
         _fastEnemyPool = new ObjectPool<FastEnemy>(100);
+        _colossusBossPool = new ObjectPool<ColossusBoss>(1);
         _xpPool = new ObjectPool<XpGem>(300);
 
         base.Initialize();
@@ -88,6 +97,9 @@ public partial class Game1 : Game
         {
             case GameState.Playing:
                 UpdatePlaying(dt);
+                break;
+            case GameState.BossFight:
+                UpdateBossFight(dt);
                 break;
             case GameState.LevelUp:
                 UpdateLevelUp();

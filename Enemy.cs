@@ -22,7 +22,7 @@ public abstract class Enemy : IPoolable
         KnockbackTimer = 0f;
     }
 
-    public abstract void Init(int playerLevel);
+    public abstract void Init(int playerLevel, float healthMultiplier = 1f);
 
     public virtual void Update(float dt, Vector2 playerPos)
     {
@@ -54,10 +54,10 @@ public abstract class Enemy : IPoolable
 
 public class BasicEnemy : Enemy
 {
-    public override void Init(int playerLevel)
+    public override void Init(int playerLevel, float healthMultiplier = 1f)
     {
         Speed = 120f + playerLevel * 2f;
-        Health = 30f + playerLevel * 5f;
+        Health = 30f * healthMultiplier;
         MaxHealth = Health;
         Damage = 5f;
         Size = 24f;
@@ -67,12 +67,12 @@ public class BasicEnemy : Enemy
 
 public class TankEnemy : Enemy
 {
-    public override void Init(int playerLevel)
+    public override void Init(int playerLevel, float healthMultiplier = 1f)
     {
         // 40% slower than basic
         Speed = (120f + playerLevel * 2f) * 0.6f;
         // 5x health
-        Health = (30f + playerLevel * 5f) * 5f;
+        Health = 150f * healthMultiplier;
         MaxHealth = Health;
         // 2x damage
         Damage = 10f;
@@ -85,12 +85,12 @@ public class TankEnemy : Enemy
 
 public class FastEnemy : Enemy
 {
-    public override void Init(int playerLevel)
+    public override void Init(int playerLevel, float healthMultiplier = 1f)
     {
         // 50% faster than basic
         Speed = (120f + playerLevel * 2f) * 1.5f;
         // half health
-        Health = (30f + playerLevel * 5f) * 0.5f;
+        Health = 15f * healthMultiplier;
         MaxHealth = Health;
         Damage = 5f;
         Size = 20f;

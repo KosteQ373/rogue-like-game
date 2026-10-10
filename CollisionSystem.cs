@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using System;
 using System.Collections.Generic;
 
 namespace rogue_like;
@@ -152,46 +153,16 @@ public static class CollisionSystem
         }
     }
 
-    public static void ResolveCollisions(
+    private static void ResolveGemCollisions(
         Player player,
-        ObjectPool<Bullet> bulletPool,
-        ObjectPool<BasicEnemy> basicPool,
-        ObjectPool<TankEnemy> tankPool,
-        ObjectPool<FastEnemy> fastPool,
         ObjectPool<XpGem> xpPool,
         float dt,
-        out bool leveledUpOut)
+        ref bool leveledUpOut)
     {
-        leveledUpOut = false;
-
-        var bullets = bulletPool.Items;
-        var basics = basicPool.Items;
-        var tanks = tankPool.Items;
-        var fasts = fastPool.Items;
-        var xps = xpPool.Items;
-
-        // 1. Bullet <-> Enemy
-        ResolveBulletEnemyCollisions(player, bullets, basics, xpPool);
-        ResolveBulletEnemyCollisions(player, bullets, tanks, xpPool);
-        ResolveBulletEnemyCollisions(player, bullets, fasts, xpPool);
-
-        // 2. Enemy <-> Player
-        ResolveEnemyPlayerCollisions(player, basics);
-        ResolveEnemyPlayerCollisions(player, tanks);
-        ResolveEnemyPlayerCollisions(player, fasts);
-
-        // 3. Enemy <-> Enemy (within and between pools)
-        ResolveEnemyEnemyCollisions(basics, basics, true);
-        ResolveEnemyEnemyCollisions(tanks, tanks, true);
-        ResolveEnemyEnemyCollisions(fasts, fasts, true);
-        ResolveEnemyEnemyCollisions(basics, tanks, false);
-        ResolveEnemyEnemyCollisions(basics, fasts, false);
-        ResolveEnemyEnemyCollisions(tanks, fasts, false);
-
-        // 4. Player <-> XpGem
         float pickupRadius = player.PickupRadius.Value;
         float pickupRadiusSq = pickupRadius * pickupRadius;
         float collectRadiusSq = 20f * 20f;
+        var xps = xpPool.Items;
 
         for (int i = 0; i < xps.Count; i++)
         {
@@ -219,5 +190,141 @@ public static class CollisionSystem
                 }
             }
         }
+    }
+
+    public static void ResolveCollisions(
+        Player player,
+        ObjectPool<Bullet> bulletPool,
+        ObjectPool<BasicEnemy> basicPool,
+        ObjectPool<TankEnemy> tankPool,
+        ObjectPool<FastEnemy> fastPool,
+        ObjectPool<XpGem> xpPool,
+        float dt,
+        out bool leveledUpOut)
+    {
+        leveledUpOut = false;
+
+        var bullets = bulletPool.Items;
+        var basics = basicPool.Items;
+        var tanks = tankPool.Items;
+        var fasts = fastPool.Items;
+
+        // 1. Bullet <-> Enemy
+        ResolveBulletEnemyCollisions(player, bullets, basics, xpPool);
+        ResolveBulletEnemyCollisions(player, bullets, tanks, xpPool);
+        ResolveBulletEnemyCollisions(player, bullets, fasts, xpPool);
+
+        // 2. Enemy <-> Player
+        ResolveEnemyPlayerCollisions(player, basics);
+        ResolveEnemyPlayerCollisions(player, tanks);
+        ResolveEnemyPlayerCollisions(player, fasts);
+
+        // 3. Enemy <-> Enemy (within and between pools)
+        ResolveEnemyEnemyCollisions(basics, basics, true);
+        ResolveEnemyEnemyCollisions(tanks, tanks, true);
+        ResolveEnemyEnemyCollisions(fasts, fasts, true);
+        ResolveEnemyEnemyCollisions(basics, tanks, false);
+        ResolveEnemyEnemyCollisions(basics, fasts, false);
+        ResolveEnemyEnemyCollisions(tanks, fasts, false);
+
+        // 4. Player <-> XpGem
+        ResolveGemCollisions(player, xpPool, dt, ref leveledUpOut);
+    }
+
+    public static void ResolveBossCollisions(
+        Player player,
+        ObjectPool<Bullet> bulletPool,
+        Boss boss,
+        ObjectPool<XpGem> xpPool,
+        float dt,
+        out bool leveledUpOut,
+        out bool bossDiedOut)
+    {
+        leveledUpOut = false;
+        bossDiedOut = false;
+
+        if (boss == null || !boss.IsActive)
+        {
+            return;
+        }
+
+        var bullets = bulletPool.Items;
+
+        // 1. Bullets <-> Boss
+        float bossRadius = boss.Size * 0.5f;
+        float radiusSum = 4f + bossRadius;
+        float radiusSumSq = radiusSum * radiusSum;
+
+        for (int i = 0; i < bullets.Count; i++)
+        {
+            var bullet = bullets[i];
+            if (!bullet.IsActive) continue;
+
+            float distSq = Vector2.DistanceSquared(bullet.Position, boss.Position);
+            if (distSq < radiusSumSq)
+            {
+                boss.Health -= bullet.Damage;
+
+                for (int k = 0; k < bullet.HitEffects.Count; k++)
+                {
+                    bullet.HitEffects[k].OnHit(boss, ref bullet);
+                }
+
+                bullet.PierceCount--;
+                if (bullet.PierceCount <= 0)
+                {
+                    bullet.IsActive = false;
+                }
+
+                if (boss.Health <= 0f)
+                {
+                    boss.IsActive = false;
+                    bossDiedOut = true;
+
+                    for (int g = 0; g < boss.XpDropCount; g++)
+                    {
+                        var xp = xpPool.Get();
+                        float angle = g * (MathHelper.TwoPi / boss.XpDropCount);
+                        float dropRadius = 35f + (g % 3) * 15f;
+                        Vector2 offset = new Vector2((float)Math.Cos(angle), (float)Math.Sin(angle)) * dropRadius;
+                        xp.Position = boss.Position + offset;
+                        xp.Value = 1;
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        // 2. Boss <-> Player
+        if (boss.IsActive)
+        {
+            float playerRadius = 14f;
+            float playerBossRadiusSum = playerRadius + bossRadius;
+            float pbDistSq = Vector2.DistanceSquared(boss.Position, player.Position);
+
+            if (pbDistSq < playerBossRadiusSum * playerBossRadiusSum)
+            {
+                if (boss.AttackCooldown <= 0f)
+                {
+                    player.TakeDamage(boss.Damage);
+                    boss.AttackCooldown = 0.5f;
+                }
+
+                Vector2 delta = boss.Position - player.Position;
+                if (pbDistSq > 0.0001f)
+                {
+                    float pushFactor = (playerBossRadiusSum * playerBossRadiusSum - pbDistSq) / (pbDistSq + 1f) * 0.2f;
+                    boss.Position += delta * pushFactor;
+
+                    float halfSize = boss.Size * 0.5f;
+                    boss.Position.X = MathHelper.Clamp(boss.Position.X, halfSize, 2000f - halfSize);
+                    boss.Position.Y = MathHelper.Clamp(boss.Position.Y, halfSize, 2000f - halfSize);
+                }
+            }
+        }
+
+        // 3. Player <-> XpGem
+        ResolveGemCollisions(player, xpPool, dt, ref leveledUpOut);
     }
 }

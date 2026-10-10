@@ -69,6 +69,14 @@ public partial class Game1
             }
         }
 
+        // Draw Active Boss (if in BossFight)
+        if (_currentState == GameState.BossFight && _activeBoss != null && _activeBoss.IsActive)
+        {
+            Color bossBaseCol = new Color(220, 20, 60); // Crimson boss color
+            Color bossCol = _activeBoss.KnockbackTimer > 0f ? Color.Lerp(bossBaseCol, Color.Yellow, 0.6f) : bossBaseCol;
+            DrawRect(_activeBoss.Position, (int)_activeBoss.Size, (int)_activeBoss.Size, bossCol);
+        }
+
         // Draw Bullets
         var bullets = _bulletPool.Items;
         for (int i = 0; i < bullets.Count; i++)
@@ -111,6 +119,55 @@ public partial class Game1
         {
             _spriteBatch.DrawString(_font, $"HP: {(int)_player.CurrentHealth}/{(int)maxHp}", new Vector2(barX + 8, barY + 3), Color.White);
             _spriteBatch.DrawString(_font, $"Level: {_player.Level}", new Vector2(barX, barY + barHeight + 8), Color.White);
+        }
+
+        // Draw Boss Health Bar or Game Timer at top center
+        if (_currentState == GameState.BossFight && _activeBoss != null && _activeBoss.IsActive)
+        {
+            int bossBarWidth = 600;
+            int bossBarHeight = 26;
+            int bossBarX = (screenWidth - bossBarWidth) / 2;
+            int bossBarY = 20;
+
+            float bossMaxHp = _activeBoss.MaxHealth;
+            float bossHpPct = bossMaxHp > 0f ? MathHelper.Clamp(_activeBoss.Health / bossMaxHp, 0f, 1f) : 0f;
+
+            _spriteBatch.Draw(_pixel, new Rectangle(bossBarX - 2, bossBarY - 2, bossBarWidth + 4, bossBarHeight + 4), new Color(15, 15, 15));
+            _spriteBatch.Draw(_pixel, new Rectangle(bossBarX, bossBarY, bossBarWidth, bossBarHeight), new Color(50, 10, 10));
+
+            int bossFillWidth = (int)(bossBarWidth * bossHpPct);
+            if (bossFillWidth > 0)
+            {
+                _spriteBatch.Draw(_pixel, new Rectangle(bossBarX, bossBarY, bossFillWidth, bossBarHeight), new Color(200, 20, 40));
+                _spriteBatch.Draw(_pixel, new Rectangle(bossBarX, bossBarY, bossFillWidth, 4), Color.White * 0.4f);
+            }
+
+            string bossTitleStr = (_activeBoss is Boss b) ? b.BossTitle : "BOSS";
+            if (_font != null)
+            {
+                Vector2 titleSize = _font.MeasureString(bossTitleStr);
+                _spriteBatch.DrawString(_font, bossTitleStr, new Vector2(bossBarX + (bossBarWidth - titleSize.X) / 2f, bossBarY + 3), Color.White);
+            }
+            else
+            {
+                DrawPixelText(bossTitleStr, new Vector2(bossBarX + bossBarWidth / 2f - 40f, bossBarY + 5), Color.White, scale: 2);
+            }
+        }
+        else
+        {
+            int minutes = (int)(_survivalTime / 60f);
+            int seconds = (int)(_survivalTime % 60f);
+            string timeStr = $"{minutes:D2}:{seconds:D2}";
+            
+            if (_font != null)
+            {
+                Vector2 timeSize = _font.MeasureString(timeStr);
+                _spriteBatch.DrawString(_font, timeStr, new Vector2((screenWidth - timeSize.X) / 2f, 20f), Color.White, 0f, Vector2.Zero, 1.3f, SpriteEffects.None, 0f);
+            }
+            else
+            {
+                DrawPixelText(timeStr, new Vector2((screenWidth - 60) / 2f, 20f), Color.White, scale: 3);
+            }
         }
 
         // XP Bar in top right corner

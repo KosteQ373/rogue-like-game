@@ -16,7 +16,7 @@ public class Player
     public CharacterStat Pierce = new CharacterStat(1f);
     public CharacterStat DodgeChance = new CharacterStat(0f);
     public CharacterStat Range = new CharacterStat(450f);
-    public CharacterStat Knockback = new CharacterStat(400f);
+    public CharacterStat Knockback = new CharacterStat(200f);
     public int ProjectilesCount = 1;
     public bool HasBoomerang = false;
     public float CurrentHealth;

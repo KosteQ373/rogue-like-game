@@ -6,7 +6,7 @@ namespace rogue_like;
 
 public partial class Game1
 {
-    private void UpdatePlaying(float dt)
+    private void UpdatePlayerAndCamera(float dt)
     {
         _player.Update(dt);
 
@@ -28,13 +28,18 @@ public partial class Game1
         _player.Position.X = MathHelper.Clamp(_player.Position.X, 20f, ArenaWidth - 20f);
         _player.Position.Y = MathHelper.Clamp(_player.Position.Y, 20f, ArenaHeight - 20f);
 
-        // Pobieramy dynamicznie wymiary ekranu do obliczeń
+        // Dynamic screen center calculations
         float halfW = GraphicsDevice.Viewport.Width / 2f;
         float halfH = GraphicsDevice.Viewport.Height / 2f;
 
         _camera.Update(_player.Position, halfW, halfH, ArenaWidth, ArenaHeight);
+    }
 
-        // Shooting input (Left mouse click towards cursor in world coordinates)
+    private void UpdatePlayerShooting(float dt)
+    {
+        float halfW = GraphicsDevice.Viewport.Width / 2f;
+        float halfH = GraphicsDevice.Viewport.Height / 2f;
+
         _player.ShootTimer += dt * _player.AttackSpeed.Value;
         var mouseState = Mouse.GetState();
         if (mouseState.LeftButton == ButtonState.Pressed && _player.ShootTimer >= _player.ShootInterval)
@@ -43,8 +48,6 @@ public partial class Game1
 
             // Convert screen mouse position to world position based on camera dead zone position
             Vector2 screenMousePos = new Vector2(mouseState.X, mouseState.Y);
-            
-            // Tutaj podmieniamy stałe 640f i 360f na dynamiczny środek ekranu
             Vector2 cameraOffset = _camera.GetOffset(halfW, halfH);
             Vector2 worldMousePos = screenMousePos - cameraOffset;
 
@@ -99,10 +102,29 @@ public partial class Game1
                 }
             }
         }
+    }
+
+    private void UpdateBullets(float dt)
+    {
+        var bullets = _bulletPool.Items;
+        for (int i = 0; i < bullets.Count; i++)
+        {
+            if (bullets[i].IsActive)
+            {
+                bullets[i].Update(dt, _player.Position);
+            }
+        }
+    }
+
+    private void UpdatePlaying(float dt)
+    {
+        UpdatePlayerAndCamera(dt);
+        UpdatePlayerShooting(dt);
 
         // Spawn enemies outside player's field of view
         _survivalTime += dt;
-        int intervalsPassed = (int)(_survivalTime / 15f);
+        _spawnTempoTime += dt;
+        int intervalsPassed = (int)(_spawnTempoTime / 15f);
         _spawnInterval = Math.Max(0.3f, 2.5f - intervalsPassed * 0.15f);
 
         _spawnTimer += dt;
@@ -125,7 +147,7 @@ public partial class Game1
                 enemy = _tankEnemyPool.Get();
             }
 
-            enemy.Init(_player.Level);
+            enemy.Init(_player.Level, _enemyHealthMultiplier);
 
             float angle = (float)(_rand.NextDouble() * Math.PI * 2);
             float dist = 750f + (float)(_rand.NextDouble() * 200f); 
@@ -137,15 +159,7 @@ public partial class Game1
             enemy.Position = spawnPos;
         }
 
-        // Update Bullets
-        var bullets = _bulletPool.Items;
-        for (int i = 0; i < bullets.Count; i++)
-        {
-            if (bullets[i].IsActive)
-            {
-                bullets[i].Update(dt, _player.Position);
-            }
-        }
+        UpdateBullets(dt);
 
         // Update Enemies
         var basics = _basicEnemyPool.Items;
@@ -176,11 +190,106 @@ public partial class Game1
         if (_player.CurrentHealth <= 0f)
         {
             _currentState = GameState.GameOver;
+            return;
         }
+
+        // Check 120s boss fight interval
+        _bossTimer += dt;
+        if (_bossTimer >= BossInterval)
+        {
+            _bossTimer = 0f;
+            StartBossFight();
+        }
+    }
+
+    private void StartBossFight()
+    {
+        // Despawn all active regular enemies
+        var basics = _basicEnemyPool.Items;
+        for (int i = 0; i < basics.Count; i++) basics[i].IsActive = false;
+
+        var tanks = _tankEnemyPool.Items;
+        for (int i = 0; i < tanks.Count; i++) tanks[i].IsActive = false;
+
+        var fasts = _fastEnemyPool.Items;
+        for (int i = 0; i < fasts.Count; i++) fasts[i].IsActive = false;
+
+        // Randomly spawn one of the available bosses
+        _activeBoss = SpawnRandomBoss();
+
+        _currentState = GameState.BossFight;
+    }
+
+    private Boss SpawnRandomBoss()
+    {
+        // Randomly select among available bosses (expandable for future bosses)
+        int bossIndex = _rand.Next(1);
+        Boss boss = bossIndex switch
+        {
+            0 => _colossusBossPool.Get(),
+            _ => _colossusBossPool.Get()
+        };
+
+        boss.Init(_player.Level, _enemyHealthMultiplier);
+
+        // Spawn outside camera / distant from player inside arena
+        float angle = (float)(_rand.NextDouble() * Math.PI * 2);
+        float dist = 750f;
+        Vector2 spawnPos = _camera.Position + new Vector2((float)Math.Cos(angle), (float)Math.Sin(angle)) * dist;
+        float margin = boss.Size;
+        spawnPos.X = MathHelper.Clamp(spawnPos.X, margin, ArenaWidth - margin);
+        spawnPos.Y = MathHelper.Clamp(spawnPos.Y, margin, ArenaHeight - margin);
+        boss.Position = spawnPos;
+
+        return boss;
+    }
+
+    private void UpdateBossFight(float dt)
+    {
+        UpdatePlayerAndCamera(dt);
+        UpdatePlayerShooting(dt);
+        UpdateBullets(dt);
+
+        if (_activeBoss != null && _activeBoss.IsActive)
+        {
+            _activeBoss.Update(dt, _player.Position);
+
+            CollisionSystem.ResolveBossCollisions(_player, _bulletPool, _activeBoss, _xpPool, dt, out bool leveledUp, out bool bossDied);
+
+            if (bossDied)
+            {
+                OnBossDefeated();
+            }
+
+            if (leveledUp)
+            {
+                TriggerLevelUp();
+            }
+        }
+        else
+        {
+            OnBossDefeated();
+        }
+
+        if (_player.CurrentHealth <= 0f)
+        {
+            _currentState = GameState.GameOver;
+        }
+    }
+
+    private void OnBossDefeated()
+    {
+        _activeBoss = null;
+        _spawnTempoTime = 0f;
+        _spawnInterval = 2.5f;
+        _spawnTimer = 0f;
+        _enemyHealthMultiplier *= 3f;
+        _currentState = GameState.Playing;
     }
 
     private void TriggerLevelUp()
     {
+        _stateBeforeLevelUp = _currentState;
         _currentState = GameState.LevelUp;
         _currentChoices.Clear();
         var allUpgrades = UpgradeDatabase.GetAllUpgrades();
@@ -254,7 +363,7 @@ public partial class Game1
             {
                 _acquiredUpgrades.Add(chosen.Title);
             }
-            _currentState = GameState.Playing;
+            _currentState = _stateBeforeLevelUp;
         }
     }
 
@@ -266,8 +375,13 @@ public partial class Game1
             _player = new Player(new Vector2(1000, 1000));
             _camera.Position = _player.Position;
             _survivalTime = 0f;
+            _spawnTempoTime = 0f;
+            _bossTimer = 0f;
             _spawnInterval = 2.5f;
             _spawnTimer = 0f;
+            _enemyHealthMultiplier = 1f;
+            if (_activeBoss != null) _activeBoss.IsActive = false;
+            _activeBoss = null;
             _acquiredUpgrades.Clear();
             foreach (var b in _bulletPool.Items) b.IsActive = false;
             foreach (var e in _basicEnemyPool.Items) e.IsActive = false;
