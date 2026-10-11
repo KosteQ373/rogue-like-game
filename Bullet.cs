@@ -18,6 +18,21 @@ public class Bullet : IPoolable
     public readonly List<ITrajectoryModifier> TrajectoryModifiers = new();
     public readonly List<IHitEffect> HitEffects = new();
 
+    public bool IsReturning
+    {
+        get
+        {
+            for (int i = 0; i < TrajectoryModifiers.Count; i++)
+            {
+                if (TrajectoryModifiers[i] is ReturningTrajectoryModifier retMod && retMod.IsReturning)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
     public void Reset()
     {
         Position = Vector2.Zero;

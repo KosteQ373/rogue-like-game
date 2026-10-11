@@ -7,7 +7,7 @@ public partial class Game1
 {
     protected override void Draw(GameTime gameTime)
     {
-        GraphicsDevice.Clear(Color.DarkGray);
+        GraphicsDevice.Clear(new Color(38, 38, 44));
 
         int screenWidth = GraphicsDevice.PresentationParameters.BackBufferWidth;
         int screenHeight = GraphicsDevice.PresentationParameters.BackBufferHeight;
@@ -20,8 +20,8 @@ public partial class Game1
         // 1. Draw World (with camera transform)
         _spriteBatch.Begin(transformMatrix: cameraTransform);
 
-        // Draw 2000x2000 black arena background
-        DrawRect(new Vector2(ArenaWidth / 2f, ArenaHeight / 2f), (int)ArenaWidth, (int)ArenaHeight, Color.Black);
+        // Draw 2000x2000 arena background
+        DrawRect(new Vector2(ArenaWidth / 2f, ArenaHeight / 2f), (int)ArenaWidth, (int)ArenaHeight, new Color(38, 38, 44));
 
         // Draw XP Gems
         var xps = _xpPool.Items;
@@ -29,7 +29,7 @@ public partial class Game1
         {
             if (xps[i].IsActive)
             {
-                DrawRect(xps[i].Position, 6, 6, Color.Gold);
+                DrawRect(xps[i].Position, 6, 6, Color.LawnGreen);
             }
         }
 
@@ -96,14 +96,17 @@ public partial class Game1
         // 2. Draw UI (screen space without camera transform)
         _spriteBatch.Begin();
 
+        float uiScale = Math.Min(screenWidth / 1280f, screenHeight / 720f);
+        uiScale = MathHelper.Clamp(uiScale, 0.7f, 2.5f);
+
         float maxHp = _player.MaxHealth.Value;
         float healthPct = maxHp > 0f ? MathHelper.Clamp(_player.CurrentHealth / maxHp, 0f, 1f) : 0f;
 
-        // Player Main HUD Health Bar (Lengthened)
-        int barX = 20;
-        int barY = 20;
-        int barWidth = 360;
-        int barHeight = 22;
+        // Player Main HUD Health Bar
+        int barWidth = (int)(320f * uiScale);
+        int barHeight = (int)(22f * uiScale);
+        int barX = (int)(20f * uiScale);
+        int barY = (int)(20f * uiScale);
 
         _spriteBatch.Draw(_pixel, new Rectangle(barX - 2, barY - 2, barWidth + 4, barHeight + 4), new Color(15, 15, 15));
         _spriteBatch.Draw(_pixel, new Rectangle(barX, barY, barWidth, barHeight), new Color(45, 15, 15));
@@ -112,22 +115,33 @@ public partial class Game1
         if (fillWidth > 0)
         {
             _spriteBatch.Draw(_pixel, new Rectangle(barX, barY, fillWidth, barHeight), new Color(220, 35, 35));
-            _spriteBatch.Draw(_pixel, new Rectangle(barX, barY, fillWidth, 4), Color.White * 0.3f);
+            _spriteBatch.Draw(_pixel, new Rectangle(barX, barY, fillWidth, Math.Max(2, (int)(4f * uiScale))), Color.White * 0.3f);
         }
 
         if (_font != null)
         {
-            _spriteBatch.DrawString(_font, $"HP: {(int)_player.CurrentHealth}/{(int)maxHp}", new Vector2(barX + 8, barY + 3), Color.White);
-            _spriteBatch.DrawString(_font, $"Level: {_player.Level}", new Vector2(barX, barY + barHeight + 8), Color.White);
+            float hpTextScale = MathHelper.Clamp(uiScale * 0.8f, 0.5f, 1.3f);
+            string hpText = $"HP: {FormatNumber(_player.CurrentHealth)}/{FormatNumber(maxHp)}";
+            Vector2 hpTextSize = _font.MeasureString(hpText) * hpTextScale;
+            float maxAllowedWidth = barWidth - (int)(16f * uiScale);
+            if (hpTextSize.X > maxAllowedWidth && maxAllowedWidth > 0)
+            {
+                hpTextScale *= (maxAllowedWidth / hpTextSize.X);
+                hpTextSize = _font.MeasureString(hpText) * hpTextScale;
+            }
+            Vector2 hpTextPos = new Vector2(barX + (int)(8f * uiScale), barY + (barHeight - hpTextSize.Y) / 2f);
+            _spriteBatch.DrawString(_font, hpText, hpTextPos, Color.White, 0f, Vector2.Zero, hpTextScale, SpriteEffects.None, 0f);
+
+            _spriteBatch.DrawString(_font, $"Level: {_player.Level}", new Vector2(barX, barY + barHeight + (int)(6f * uiScale)), Color.White, 0f, Vector2.Zero, hpTextScale, SpriteEffects.None, 0f);
         }
 
         // Draw Boss Health Bar or Game Timer at top center
         if (_currentState == GameState.BossFight && _activeBoss != null && _activeBoss.IsActive)
         {
-            int bossBarWidth = 600;
-            int bossBarHeight = 26;
+            int bossBarWidth = (int)(550f * uiScale);
+            int bossBarHeight = (int)(26f * uiScale);
             int bossBarX = (screenWidth - bossBarWidth) / 2;
-            int bossBarY = 20;
+            int bossBarY = (int)(20f * uiScale);
 
             float bossMaxHp = _activeBoss.MaxHealth;
             float bossHpPct = bossMaxHp > 0f ? MathHelper.Clamp(_activeBoss.Health / bossMaxHp, 0f, 1f) : 0f;
@@ -139,18 +153,19 @@ public partial class Game1
             if (bossFillWidth > 0)
             {
                 _spriteBatch.Draw(_pixel, new Rectangle(bossBarX, bossBarY, bossFillWidth, bossBarHeight), new Color(200, 20, 40));
-                _spriteBatch.Draw(_pixel, new Rectangle(bossBarX, bossBarY, bossFillWidth, 4), Color.White * 0.4f);
+                _spriteBatch.Draw(_pixel, new Rectangle(bossBarX, bossBarY, bossFillWidth, Math.Max(2, (int)(4f * uiScale))), Color.White * 0.4f);
             }
 
             string bossTitleStr = (_activeBoss is Boss b) ? b.BossTitle : "BOSS";
             if (_font != null)
             {
-                Vector2 titleSize = _font.MeasureString(bossTitleStr);
-                _spriteBatch.DrawString(_font, bossTitleStr, new Vector2(bossBarX + (bossBarWidth - titleSize.X) / 2f, bossBarY + 3), Color.White);
+                float titleScale = MathHelper.Clamp(uiScale * 1.0f, 0.7f, 1.8f);
+                Vector2 titleSize = _font.MeasureString(bossTitleStr) * titleScale;
+                _spriteBatch.DrawString(_font, bossTitleStr, new Vector2(bossBarX + (bossBarWidth - titleSize.X) / 2f, bossBarY + (int)(2f * uiScale)), Color.White, 0f, Vector2.Zero, titleScale, SpriteEffects.None, 0f);
             }
             else
             {
-                DrawPixelText(bossTitleStr, new Vector2(bossBarX + bossBarWidth / 2f - 40f, bossBarY + 5), Color.White, scale: 2);
+                DrawPixelText(bossTitleStr, new Vector2(bossBarX + bossBarWidth / 2f - 40f, bossBarY + 5), Color.White, scale: Math.Max(1, (int)(2 * uiScale)));
             }
         }
         else
@@ -161,22 +176,23 @@ public partial class Game1
             
             if (_font != null)
             {
-                Vector2 timeSize = _font.MeasureString(timeStr);
-                _spriteBatch.DrawString(_font, timeStr, new Vector2((screenWidth - timeSize.X) / 2f, 20f), Color.White, 0f, Vector2.Zero, 1.3f, SpriteEffects.None, 0f);
+                float timeScale = MathHelper.Clamp(uiScale * 1.2f, 0.8f, 2.0f);
+                Vector2 timeSize = _font.MeasureString(timeStr) * timeScale;
+                _spriteBatch.DrawString(_font, timeStr, new Vector2((screenWidth - timeSize.X) / 2f, (int)(20f * uiScale)), Color.White, 0f, Vector2.Zero, timeScale, SpriteEffects.None, 0f);
             }
             else
             {
-                DrawPixelText(timeStr, new Vector2((screenWidth - 60) / 2f, 20f), Color.White, scale: 3);
+                DrawPixelText(timeStr, new Vector2((screenWidth - 60) / 2f, 20f), Color.White, scale: Math.Max(1, (int)(3 * uiScale)));
             }
         }
 
         // XP Bar in top right corner
         float xpMax = _player.XpToNextLevel;
         float xpPct = xpMax > 0f ? MathHelper.Clamp(_player.Xp / xpMax, 0f, 1f) : 0f;
-        int xpBarWidth = 240;
-        int xpBarHeight = 22;
-        int xpBarX = screenWidth - 20 - xpBarWidth;
-        int xpBarY = 20;
+        int xpBarWidth = (int)(280f * uiScale);
+        int xpBarHeight = (int)(22f * uiScale);
+        int xpBarX = screenWidth - (int)(20f * uiScale) - xpBarWidth;
+        int xpBarY = (int)(20f * uiScale);
 
         _spriteBatch.Draw(_pixel, new Rectangle(xpBarX - 2, xpBarY - 2, xpBarWidth + 4, xpBarHeight + 4), new Color(15, 15, 15));
         _spriteBatch.Draw(_pixel, new Rectangle(xpBarX, xpBarY, xpBarWidth, xpBarHeight), new Color(45, 40, 15));
@@ -185,19 +201,29 @@ public partial class Game1
         if (xpFillWidth > 0)
         {
             _spriteBatch.Draw(_pixel, new Rectangle(xpBarX, xpBarY, xpFillWidth, xpBarHeight), Color.Gold);
-            _spriteBatch.Draw(_pixel, new Rectangle(xpBarX, xpBarY, xpFillWidth, 4), Color.White * 0.4f);
+            _spriteBatch.Draw(_pixel, new Rectangle(xpBarX, xpBarY, xpFillWidth, Math.Max(2, (int)(4f * uiScale))), Color.White * 0.4f);
         }
 
-        string xpText = $"{(int)_player.Xp}/{(int)xpMax}";
-        DrawPixelText(xpText, new Vector2(xpBarX - 80, xpBarY + 3), Color.White, scale: 2);
-
+        string xpText = $"XP: {FormatNumber(_player.Xp)}/{FormatNumber(xpMax)}";
         if (_font != null)
         {
-            _spriteBatch.DrawString(_font, $"Level: {_player.Level}", new Vector2(xpBarX, xpBarY + xpBarHeight + 8), Color.White);
+            float xpTextScale = MathHelper.Clamp(uiScale * 0.8f, 0.5f, 1.3f);
+            Vector2 xpTextSize = _font.MeasureString(xpText) * xpTextScale;
+            float maxAllowedWidth = xpBarWidth - (int)(16f * uiScale);
+            if (xpTextSize.X > maxAllowedWidth && maxAllowedWidth > 0)
+            {
+                xpTextScale *= (maxAllowedWidth / xpTextSize.X);
+                xpTextSize = _font.MeasureString(xpText) * xpTextScale;
+            }
+            Vector2 xpTextPos = new Vector2(xpBarX + (int)(8f * uiScale), xpBarY + (xpBarHeight - xpTextSize.Y) / 2f);
+            _spriteBatch.DrawString(_font, xpText, xpTextPos, Color.White, 0f, Vector2.Zero, xpTextScale, SpriteEffects.None, 0f);
+
+            _spriteBatch.DrawString(_font, $"Level: {_player.Level}", new Vector2(xpBarX, xpBarY + xpBarHeight + (int)(6f * uiScale)), Color.White, 0f, Vector2.Zero, xpTextScale, SpriteEffects.None, 0f);
         }
         else
         {
-            DrawPixelText($"LVL {_player.Level}", new Vector2(xpBarX, xpBarY + xpBarHeight + 8), Color.White, scale: 2);
+            DrawPixelText(xpText, new Vector2(xpBarX + 8, xpBarY + 3), Color.White, scale: Math.Max(1, (int)(2 * uiScale)));
+            DrawPixelText($"LVL {_player.Level}", new Vector2(xpBarX, xpBarY + xpBarHeight + 8), Color.White, scale: Math.Max(1, (int)(2 * uiScale)));
         }
 
         if (_currentState == GameState.LevelUp)
@@ -207,21 +233,26 @@ public partial class Game1
             string titleText = "LEVEL UP! CHOOSE AN UPGRADE";
             if (_font != null)
             {
-                Vector2 titleSize = _font.MeasureString(titleText);
-                _spriteBatch.DrawString(_font, titleText, new Vector2((screenWidth - titleSize.X) / 2f, 70f), Color.Gold);
+                float titleScale = MathHelper.Clamp(uiScale * 1.2f, 0.8f, 2.0f);
+                Vector2 titleSize = _font.MeasureString(titleText) * titleScale;
+                _spriteBatch.DrawString(_font, titleText, new Vector2((screenWidth - titleSize.X) / 2f, (int)(screenHeight * 0.1f)), Color.Gold, 0f, Vector2.Zero, titleScale, SpriteEffects.None, 0f);
             }
             else
             {
-                DrawPixelText(titleText, new Vector2((screenWidth - titleText.Length * 20) / 2f, 70f), Color.Gold, scale: 2);
+                DrawPixelText(titleText, new Vector2((screenWidth - titleText.Length * 20) / 2f, 70f), Color.Gold, scale: Math.Max(1, (int)(2 * uiScale)));
             }
 
-            int totalCardsWidth = 3 * 320 + 2 * 40;
+            int cardWidth = (int)(300f * uiScale);
+            int cardHeight = (int)(410f * uiScale);
+            int cardGap = (int)(30f * uiScale);
+            int totalCardsWidth = 3 * cardWidth + 2 * cardGap;
             int startCardX = (screenWidth - totalCardsWidth) / 2;
+            int startCardY = (int)(screenHeight * 0.22f);
 
             for (int i = 0; i < _currentChoices.Count; i++)
             {
-                int cardX = startCardX + i * (320 + 40);
-                Rectangle cardRect = new Rectangle(cardX, 150, 320, 420);
+                int cardX = startCardX + i * (cardWidth + cardGap);
+                Rectangle cardRect = new Rectangle(cardX, startCardY, cardWidth, cardHeight);
 
                 _spriteBatch.Draw(_pixel, cardRect, new Color(45, 45, 45));
 
@@ -234,29 +265,30 @@ public partial class Game1
                     _ => Color.White
                 };
 
-                _spriteBatch.Draw(_pixel, new Rectangle(cardRect.X, cardRect.Y, cardRect.Width, 3), borderColor);
-                _spriteBatch.Draw(_pixel, new Rectangle(cardRect.X, cardRect.Y, 3, cardRect.Height), borderColor);
-                _spriteBatch.Draw(_pixel, new Rectangle(cardRect.X + cardRect.Width - 3, cardRect.Y, 3, cardRect.Height), borderColor);
-                _spriteBatch.Draw(_pixel, new Rectangle(cardRect.X, cardRect.Y + cardRect.Height - 3, cardRect.Width, 3), borderColor);
+                int borderThickness = Math.Max(2, (int)(3f * uiScale));
+                _spriteBatch.Draw(_pixel, new Rectangle(cardRect.X, cardRect.Y, cardRect.Width, borderThickness), borderColor);
+                _spriteBatch.Draw(_pixel, new Rectangle(cardRect.X, cardRect.Y, borderThickness, cardRect.Height), borderColor);
+                _spriteBatch.Draw(_pixel, new Rectangle(cardRect.X + cardRect.Width - borderThickness, cardRect.Y, borderThickness, cardRect.Height), borderColor);
+                _spriteBatch.Draw(_pixel, new Rectangle(cardRect.X, cardRect.Y + cardRect.Height - borderThickness, cardRect.Width, borderThickness), borderColor);
 
                 string shortcut = $"[{i + 1}]";
-                string cardTitle = card.Title.ToUpper();
-                string cardDesc = card.Description.ToUpper();
                 string rarityText = card.Rarity.ToString().ToUpper();
 
                 if (_font != null)
                 {
-                    _spriteBatch.DrawString(_font, shortcut, new Vector2(cardRect.X + 24, cardRect.Y + 24), Color.Cyan, 0f, Vector2.Zero, 1.2f, SpriteEffects.None, 0f);
-                    _spriteBatch.DrawString(_font, rarityText, new Vector2(cardRect.X + 160, cardRect.Y + 28), borderColor, 0f, Vector2.Zero, 1.0f, SpriteEffects.None, 0f);
-                    _spriteBatch.DrawString(_font, card.Title, new Vector2(cardRect.X + 24, cardRect.Y + 70), Color.White, 0f, Vector2.Zero, 1.5f, SpriteEffects.None, 0f);
-                    _spriteBatch.DrawString(_font, card.Description, new Vector2(cardRect.X + 24, cardRect.Y + 140), Color.LightGray, 0f, Vector2.Zero, 1.1f, SpriteEffects.None, 0f);
+                    float cardTextScale = MathHelper.Clamp(uiScale * 0.9f, 0.6f, 1.4f);
+                    _spriteBatch.DrawString(_font, shortcut, new Vector2(cardRect.X + (int)(20f * uiScale), cardRect.Y + (int)(20f * uiScale)), Color.Cyan, 0f, Vector2.Zero, cardTextScale * 1.1f, SpriteEffects.None, 0f);
+                    _spriteBatch.DrawString(_font, rarityText, new Vector2(cardRect.X + (int)(130f * uiScale), cardRect.Y + (int)(22f * uiScale)), borderColor, 0f, Vector2.Zero, cardTextScale * 0.9f, SpriteEffects.None, 0f);
+                    
+                    _spriteBatch.DrawString(_font, card.Title, new Vector2(cardRect.X + (int)(20f * uiScale), cardRect.Y + (int)(65f * uiScale)), Color.White, 0f, Vector2.Zero, cardTextScale * 1.2f, SpriteEffects.None, 0f);
+                    _spriteBatch.DrawString(_font, card.Description, new Vector2(cardRect.X + (int)(20f * uiScale), cardRect.Y + (int)(130f * uiScale)), Color.LightGray, 0f, Vector2.Zero, cardTextScale, SpriteEffects.None, 0f);
                 }
                 else
                 {
-                    DrawPixelText(shortcut, new Vector2(cardRect.X + 24, cardRect.Y + 24), Color.Cyan, scale: 3);
-                    DrawPixelText(rarityText, new Vector2(cardRect.X + 160, cardRect.Y + 26), borderColor, scale: 2);
-                    DrawPixelText(cardTitle, new Vector2(cardRect.X + 24, cardRect.Y + 70), Color.White, scale: 3);
-                    DrawPixelText(cardDesc, new Vector2(cardRect.X + 24, cardRect.Y + 140), Color.LightGray, scale: 2);
+                    DrawPixelText(shortcut, new Vector2(cardRect.X + 24, cardRect.Y + 24), Color.Cyan, scale: Math.Max(1, (int)(3 * uiScale)));
+                    DrawPixelText(rarityText, new Vector2(cardRect.X + 160, cardRect.Y + 26), borderColor, scale: Math.Max(1, (int)(2 * uiScale)));
+                    DrawPixelText(card.Title.ToUpper(), new Vector2(cardRect.X + 24, cardRect.Y + 70), Color.White, scale: Math.Max(1, (int)(3 * uiScale)));
+                    DrawPixelText(card.Description.ToUpper(), new Vector2(cardRect.X + 24, cardRect.Y + 140), Color.LightGray, scale: Math.Max(1, (int)(2 * uiScale)));
                 }
             }
         }
@@ -275,6 +307,24 @@ public partial class Game1
             else
             {
                 DrawPixelText("GAME OVER", new Vector2((screenWidth - 200) / 2f, screenHeight / 2f - 40f), Color.Red, scale: 4);
+                DrawPixelText("PRESS R TO RESTART", new Vector2((screenWidth - 350) / 2f, screenHeight / 2f + 20f), Color.White, scale: 2);
+            }
+        }
+        else if (_currentState == GameState.YouWin)
+        {
+            _spriteBatch.Draw(_pixel, new Rectangle(0, 0, screenWidth, screenHeight), Color.Black * 0.8f);
+            if (_font != null)
+            {
+                string winText = "YOU WIN";
+                string restartText = "PRESS 'R' TO RESTART";
+                Vector2 winSize = _font.MeasureString(winText);
+                Vector2 resSize = _font.MeasureString(restartText);
+                _spriteBatch.DrawString(_font, winText, new Vector2((screenWidth - winSize.X) / 2f, screenHeight / 2f - 40f), Color.Gold, 0f, Vector2.Zero, 1.5f, SpriteEffects.None, 0f);
+                _spriteBatch.DrawString(_font, restartText, new Vector2((screenWidth - resSize.X) / 2f, screenHeight / 2f + 20f), Color.White, 0f, Vector2.Zero, 1.2f, SpriteEffects.None, 0f);
+            }
+            else
+            {
+                DrawPixelText("YOU WIN", new Vector2((screenWidth - 200) / 2f, screenHeight / 2f - 40f), Color.Gold, scale: 4);
                 DrawPixelText("PRESS R TO RESTART", new Vector2((screenWidth - 350) / 2f, screenHeight / 2f + 20f), Color.White, scale: 2);
             }
         }
@@ -377,5 +427,14 @@ public partial class Game1
         byte g = (byte)MathHelper.Lerp(70f, 0f, t);
         byte b = (byte)MathHelper.Lerp(70f, 0f, t);
         return new Color(r, g, b);
+    }
+
+    private string FormatNumber(float val)
+    {
+        if (val >= 1000000f)
+            return $"{val / 1000000f:0.#}M";
+        if (val >= 1000f)
+            return $"{val / 1000f:0.#}K";
+        return $"{(long)val}";
     }
 }

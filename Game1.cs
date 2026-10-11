@@ -27,7 +27,10 @@ public partial class Game1 : Game
     private float _bossTimer = 0f;
     private const float BossInterval = 120f;
     private float _spawnTempoTime = 0f;
-    private float _enemyHealthMultiplier = 1f;
+    private float _hpMultiplier = 1f;
+    private float _speedMultiplier = 1f;
+    private float _damageMultiplier = 1f;
+    private int _bossesDefeatedCount = 0;
     private GameState _stateBeforeLevelUp = GameState.Playing;
 
     private float _spawnTimer;
@@ -106,6 +109,9 @@ public partial class Game1 : Game
                 break;
             case GameState.GameOver:
                 UpdateGameOver();
+                break;
+            case GameState.YouWin:
+                UpdateYouWin();
                 break;
         }
 

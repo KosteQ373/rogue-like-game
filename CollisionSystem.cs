@@ -30,24 +30,27 @@ public static class CollisionSystem
                 {
                     enemy.Health -= bullet.Damage;
 
-                    // Apply knockback: knockback / size (of enemy) in px, in the direction the bullet was flying
-                    Vector2 kbDir = bullet.Velocity;
-                    if (kbDir.LengthSquared() > 0.0001f)
+                    // Apply knockback: knockback / size (of enemy) in px, in the direction the bullet was flying (if not returning)
+                    if (!bullet.IsReturning)
                     {
-                        kbDir.Normalize();
-                    }
-                    else
-                    {
-                        kbDir = enemy.Position - bullet.Position;
-                        if (kbDir.LengthSquared() > 0.0001f) kbDir.Normalize();
-                        else kbDir = new Vector2(1f, 0f);
-                    }
+                        Vector2 kbDir = bullet.Velocity;
+                        if (kbDir.LengthSquared() > 0.0001f)
+                        {
+                            kbDir.Normalize();
+                        }
+                        else
+                        {
+                            kbDir = enemy.Position - bullet.Position;
+                            if (kbDir.LengthSquared() > 0.0001f) kbDir.Normalize();
+                            else kbDir = new Vector2(1f, 0f);
+                        }
 
-                    float kbDistance = player.Knockback.Value / enemy.Size;
-                    enemy.Position += kbDir * kbDistance;
-                    enemy.KnockbackTimer = 0.25f;
-                    enemy.Position.X = MathHelper.Clamp(enemy.Position.X, 20f, 1980f);
-                    enemy.Position.Y = MathHelper.Clamp(enemy.Position.Y, 20f, 1980f);
+                        float kbDistance = player.Knockback.Value / enemy.Size;
+                        enemy.Position += kbDir * kbDistance;
+                        enemy.KnockbackTimer = 0.25f;
+                        enemy.Position.X = MathHelper.Clamp(enemy.Position.X, 20f, 1980f);
+                        enemy.Position.Y = MathHelper.Clamp(enemy.Position.Y, 20f, 1980f);
+                    }
 
                     for (int k = 0; k < bullet.HitEffects.Count; k++)
                     {

@@ -5,5 +5,6 @@ public enum GameState
     Playing,
     BossFight,
     LevelUp,
-    GameOver
+    GameOver,
+    YouWin
 }

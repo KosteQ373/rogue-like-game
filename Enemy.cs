@@ -22,7 +22,7 @@ public abstract class Enemy : IPoolable
         KnockbackTimer = 0f;
     }
 
-    public abstract void Init(int playerLevel, float healthMultiplier = 1f);
+    public abstract void Init(int playerLevel, float hpMultiplier = 1f, float speedMultiplier = 1f, float damageMultiplier = 1f);
 
     public virtual void Update(float dt, Vector2 playerPos)
     {
@@ -54,46 +54,46 @@ public abstract class Enemy : IPoolable
 
 public class BasicEnemy : Enemy
 {
-    public override void Init(int playerLevel, float healthMultiplier = 1f)
+    public override void Init(int playerLevel, float hpMultiplier = 1f, float speedMultiplier = 1f, float damageMultiplier = 1f)
     {
-        Speed = 120f + playerLevel * 2f;
-        Health = 30f * healthMultiplier;
+        Speed = (120f + playerLevel * 2f) * speedMultiplier;
+        Health = 30f * hpMultiplier;
         MaxHealth = Health;
-        Damage = 5f;
+        Damage = 5f * damageMultiplier;
         Size = 24f;
-        XpDropCount = 1;
+        XpDropCount = Math.Max(1, (int)(1f * hpMultiplier));
     }
 }
 
 public class TankEnemy : Enemy
 {
-    public override void Init(int playerLevel, float healthMultiplier = 1f)
+    public override void Init(int playerLevel, float hpMultiplier = 1f, float speedMultiplier = 1f, float damageMultiplier = 1f)
     {
         // 40% slower than basic
-        Speed = (120f + playerLevel * 2f) * 0.6f;
+        Speed = (120f + playerLevel * 2f) * 0.6f * speedMultiplier;
         // 5x health
-        Health = 150f * healthMultiplier;
+        Health = 150f * hpMultiplier;
         MaxHealth = Health;
         // 2x damage
-        Damage = 10f;
+        Damage = 10f * damageMultiplier;
         // 2x size (visual & hitbox)
         Size = 40f;
         // 3 xp gems
-        XpDropCount = 3;
+        XpDropCount = Math.Max(1, (int)(3f * hpMultiplier));
     }
 }
 
 public class FastEnemy : Enemy
 {
-    public override void Init(int playerLevel, float healthMultiplier = 1f)
+    public override void Init(int playerLevel, float hpMultiplier = 1f, float speedMultiplier = 1f, float damageMultiplier = 1f)
     {
         // 50% faster than basic
-        Speed = (120f + playerLevel * 2f) * 1.5f;
+        Speed = (120f + playerLevel * 2f) * 1.5f * speedMultiplier;
         // half health
-        Health = 15f * healthMultiplier;
+        Health = 15f * hpMultiplier;
         MaxHealth = Health;
-        Damage = 5f;
+        Damage = 5f * damageMultiplier;
         Size = 20f;
-        XpDropCount = 1;
+        XpDropCount = Math.Max(1, (int)(1f * hpMultiplier));
     }
 }

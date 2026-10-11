@@ -147,7 +147,7 @@ public partial class Game1
                 enemy = _tankEnemyPool.Get();
             }
 
-            enemy.Init(_player.Level, _enemyHealthMultiplier);
+            enemy.Init(_player.Level, _hpMultiplier, _speedMultiplier, _damageMultiplier);
 
             float angle = (float)(_rand.NextDouble() * Math.PI * 2);
             float dist = 750f + (float)(_rand.NextDouble() * 200f); 
@@ -230,7 +230,7 @@ public partial class Game1
             _ => _colossusBossPool.Get()
         };
 
-        boss.Init(_player.Level, _enemyHealthMultiplier);
+        boss.Init(_player.Level, _hpMultiplier, _speedMultiplier, _damageMultiplier);
 
         // Spawn outside camera / distant from player inside arena
         float angle = (float)(_rand.NextDouble() * Math.PI * 2);
@@ -268,7 +268,11 @@ public partial class Game1
         }
         else
         {
-            OnBossDefeated();
+            _activeBoss = null;
+            _spawnTempoTime = 0f;
+            _spawnInterval = 2.5f;
+            _spawnTimer = 0f;
+            _currentState = GameState.Playing;
         }
 
         if (_player.CurrentHealth <= 0f)
@@ -280,10 +284,19 @@ public partial class Game1
     private void OnBossDefeated()
     {
         _activeBoss = null;
+        _bossesDefeatedCount++;
+        _hpMultiplier *= (_bossesDefeatedCount + 1);
+        _speedMultiplier += _speedMultiplier * 0.15f;
+        _damageMultiplier += _damageMultiplier * 0.25f;
+
+        if (_bossesDefeatedCount >= 5)
+        {
+            _currentState = GameState.YouWin;
+            return;
+        }
         _spawnTempoTime = 0f;
         _spawnInterval = 2.5f;
         _spawnTimer = 0f;
-        _enemyHealthMultiplier *= 3f;
         _currentState = GameState.Playing;
     }
 
@@ -339,14 +352,23 @@ public partial class Game1
         if (clicked && selectedCard == -1)
         {
             int screenWidth = GraphicsDevice.PresentationParameters.BackBufferWidth;
-            int totalCardsWidth = 3 * 320 + 2 * 40;
+            int screenHeight = GraphicsDevice.PresentationParameters.BackBufferHeight;
+
+            float uiScale = Math.Min(screenWidth / 1280f, screenHeight / 720f);
+            uiScale = MathHelper.Clamp(uiScale, 0.7f, 2.5f);
+
+            int cardWidth = (int)(300f * uiScale);
+            int cardHeight = (int)(410f * uiScale);
+            int cardGap = (int)(30f * uiScale);
+            int totalCardsWidth = 3 * cardWidth + 2 * cardGap;
             int startCardX = (screenWidth - totalCardsWidth) / 2;
+            int startCardY = (int)(screenHeight * 0.22f);
 
             Point mousePos = new Point(mouseState.X, mouseState.Y);
             for (int i = 0; i < _currentChoices.Count; i++)
             {
-                int cardX = startCardX + i * (320 + 40);
-                Rectangle cardRect = new Rectangle(cardX, 150, 320, 420);
+                int cardX = startCardX + i * (cardWidth + cardGap);
+                Rectangle cardRect = new Rectangle(cardX, startCardY, cardWidth, cardHeight);
                 if (cardRect.Contains(mousePos))
                 {
                     selectedCard = i;
@@ -367,28 +389,45 @@ public partial class Game1
         }
     }
 
+    private void ResetGame()
+    {
+        _player = new Player(new Vector2(1000, 1000));
+        _camera.Position = _player.Position;
+        _survivalTime = 0f;
+        _spawnTempoTime = 0f;
+        _bossTimer = 0f;
+        _spawnInterval = 2.5f;
+        _spawnTimer = 0f;
+        _hpMultiplier = 1f;
+        _speedMultiplier = 1f;
+        _damageMultiplier = 1f;
+        _bossesDefeatedCount = 0;
+        if (_activeBoss != null) _activeBoss.IsActive = false;
+        _activeBoss = null;
+        _acquiredUpgrades.Clear();
+        foreach (var b in _bulletPool.Items) b.IsActive = false;
+        foreach (var e in _basicEnemyPool.Items) e.IsActive = false;
+        foreach (var e in _tankEnemyPool.Items) e.IsActive = false;
+        foreach (var e in _fastEnemyPool.Items) e.IsActive = false;
+        foreach (var x in _xpPool.Items) x.IsActive = false;
+        _currentState = GameState.Playing;
+    }
+
     private void UpdateGameOver()
     {
         var kState = Keyboard.GetState();
         if (kState.IsKeyDown(Keys.R))
         {
-            _player = new Player(new Vector2(1000, 1000));
-            _camera.Position = _player.Position;
-            _survivalTime = 0f;
-            _spawnTempoTime = 0f;
-            _bossTimer = 0f;
-            _spawnInterval = 2.5f;
-            _spawnTimer = 0f;
-            _enemyHealthMultiplier = 1f;
-            if (_activeBoss != null) _activeBoss.IsActive = false;
-            _activeBoss = null;
-            _acquiredUpgrades.Clear();
-            foreach (var b in _bulletPool.Items) b.IsActive = false;
-            foreach (var e in _basicEnemyPool.Items) e.IsActive = false;
-            foreach (var e in _tankEnemyPool.Items) e.IsActive = false;
-            foreach (var e in _fastEnemyPool.Items) e.IsActive = false;
-            foreach (var x in _xpPool.Items) x.IsActive = false;
-            _currentState = GameState.Playing;
+            ResetGame();
+        }
+    }
+
+    private void UpdateYouWin()
+    {
+        var kState = Keyboard.GetState();
+        if (kState.IsKeyDown(Keys.R))
+        {
+            ResetGame();
         }
     }
 }
