@@ -31,6 +31,10 @@ public partial class Game1 : Game
     private SpatialGrid _spatialGrid;
     private readonly List<Enemy> _nearbyEnemiesBuffer = new(100);
 
+    // Bufor do Y-sortingu wrogów i gracza (zero GC allocations)
+    private readonly List<Enemy> _ySortedEnemies = new(300);
+    private static readonly Comparison<Enemy> EnemyYComparer = (a, b) => a.Position.Y.CompareTo(b.Position.Y);
+
     private Boss _activeBoss;
     private float _bossTimer = 0f;
     private const float BossInterval = 120f;
@@ -42,6 +46,8 @@ public partial class Game1 : Game
     private float _damageMultiplier = 1f;
     private int _bossesDefeatedCount = 0;
     private GameState _stateBeforeLevelUp = GameState.Playing;
+    private GameState _stateBeforePause = GameState.Playing;
+    private bool _settingsFromPause = false;
     // [TESTOWE NARZĘDZIE] Przechowuje poprzedni stan klawiatury do wykrywania naciśnięcia "L".
     private KeyboardState _lastKState;
 
@@ -60,6 +66,36 @@ public partial class Game1 : Game
 
     private const float ArenaWidth = 2000f;
     private const float ArenaHeight = 2000f;
+    
+    private Texture2D _playerIdleTexture;
+    private Texture2D _playerWalkTexture;
+    
+    // Tekstury broni
+    private Texture2D _bowTexture;
+    private Texture2D _arrowTexture;
+    private Texture2D _arrowFrozenTexture;
+    private Texture2D _arrowBurnTexture;
+    
+    // Tekstury wrogów
+    private Texture2D _basicWalkTexture;
+    private Texture2D _basicHurtTexture;
+    private Texture2D _basicAttackTexture;
+    private Texture2D _basicDeathTexture;
+    private Texture2D _fastWalkTexture;
+    private Texture2D _fastHurtTexture;
+    private Texture2D _fastAttackTexture;
+    private Texture2D _fastDeathTexture;
+    private Texture2D _tankWalkTexture;
+    private Texture2D _tankHurtTexture;
+    private Texture2D _tankAttackTexture;
+    private Texture2D _tankDeathTexture;
+    
+    // Tekstury podłogi areny
+    private Texture2D[] _floorTileTextures;
+    private const int TileSize = 64;
+    private const int FloorCols = 32;
+    private const int FloorRows = 32;
+    private int[,] _floorMap = new int[FloorCols, FloorRows];
     
     private UpgradeTags _mutuallyExclusiveTagsCache = UpgradeTags.None;
 
@@ -102,6 +138,82 @@ public partial class Game1 : Game
 
         // Jeśli tego nie załaduje, gra natychmiast wywali czerwony błąd i powiadomi dlaczego
         _font = Content.Load<SpriteFont>("Font"); 
+
+        // Tekstury animacji gracza
+        _playerIdleTexture = Content.Load<Texture2D>("player/Character_Idle");
+        _playerWalkTexture = Content.Load<Texture2D>("player/Character_Walk");
+        _player.InitializeAnimations(_playerIdleTexture, _playerWalkTexture);
+
+        // Tekstury broni
+        _bowTexture = Content.Load<Texture2D>("weapon/bow/bow");
+        _bowTexture = CreateTextureWithTransparency(_bowTexture);
+        _arrowTexture = Content.Load<Texture2D>("weapon/Arrows/Arrow");
+        _arrowFrozenTexture = Content.Load<Texture2D>("weapon/Arrows/Arrow_Frozen");
+        _arrowBurnTexture = Content.Load<Texture2D>("weapon/Arrows/Arrow_Burn");
+
+        // Tekstury wrogów
+        _basicWalkTexture = Content.Load<Texture2D>("enemys/orc1/orc1_walk_full");
+        _basicHurtTexture = Content.Load<Texture2D>("enemys/orc1/orc1_hurt_full");
+        _basicAttackTexture = Content.Load<Texture2D>("enemys/orc1/orc1_attack_full");
+        _basicDeathTexture = Content.Load<Texture2D>("enemys/orc1/orc1_death_full");
+        _fastWalkTexture = Content.Load<Texture2D>("enemys/orc2/orc2_walk_full");
+        _fastHurtTexture = Content.Load<Texture2D>("enemys/orc2/orc2_hurt_full");
+        _fastAttackTexture = Content.Load<Texture2D>("enemys/orc2/orc2_attack_full");
+        _fastDeathTexture = Content.Load<Texture2D>("enemys/orc2/orc2_death_full");
+        _tankWalkTexture = Content.Load<Texture2D>("enemys/orc3/orc3_walk_full");
+        _tankHurtTexture = Content.Load<Texture2D>("enemys/orc3/orc3_hurt_full");
+        _tankAttackTexture = Content.Load<Texture2D>("enemys/orc3/orc3_attack_full");
+        _tankDeathTexture = Content.Load<Texture2D>("enemys/orc3/orc3_death_full");
+
+        Enemy.SetTextures(
+            _basicWalkTexture, _basicHurtTexture, _basicAttackTexture, _basicDeathTexture,
+            _fastWalkTexture, _fastHurtTexture, _fastAttackTexture, _fastDeathTexture,
+            _tankWalkTexture, _tankHurtTexture, _tankAttackTexture, _tankDeathTexture);
+
+        // Tekstury podłogi areny
+        _floorTileTextures = new Texture2D[]
+        {
+            Content.Load<Texture2D>("environment/worn_beige_floor_clean_64"),
+            Content.Load<Texture2D>("environment/worn_beige_floor_cracked_64"),
+            Content.Load<Texture2D>("environment/worn_beige_floor_dirty_64"),
+            Content.Load<Texture2D>("environment/worn_beige_floor_stained_64"),
+            Content.Load<Texture2D>("environment/worn_beige_floor_worn_64")
+        };
+
+        // Generuj losową mapę podłogi (raz na start)
+        for (int x = 0; x < FloorCols; x++)
+        {
+            for (int y = 0; y < FloorRows; y++)
+            {
+                _floorMap[x, y] = _rand.Next(_floorTileTextures.Length);
+            }
+        }
+    }
+
+    // Konwertuje ciemne piksele na przezroczyste, naprawiając tło tekstury
+    private Texture2D CreateTextureWithTransparency(Texture2D source)
+    {
+        Color[] sourceData = new Color[source.Width * source.Height];
+        source.GetData(sourceData);
+
+        Color[] newData = new Color[sourceData.Length];
+        for (int i = 0; i < sourceData.Length; i++)
+        {
+            Color c = sourceData[i];
+            // Piksele bardzo ciemne (blisko czarnego) traktujemy jako przezroczyste
+            if (c.R < 30 && c.G < 30 && c.B < 30)
+            {
+                newData[i] = new Color(c.R, c.G, c.B, (byte)0);
+            }
+            else
+            {
+                newData[i] = new Color(c.R, c.G, c.B, (byte)255);
+            }
+        }
+
+        Texture2D newTexture = new Texture2D(GraphicsDevice, source.Width, source.Height);
+        newTexture.SetData(newData);
+        return newTexture;
     }
 
     protected override void Update(GameTime gameTime)
@@ -123,10 +235,10 @@ public partial class Game1 : Game
                 UpdateSettings();
                 break;
             case GameState.Playing:
-                UpdatePlaying(dt);
+                UpdatePlaying(gameTime, dt);
                 break;
             case GameState.BossFight:
-                UpdateBossFight(dt);
+                UpdateBossFight(gameTime, dt);
                 break;
             case GameState.LevelUp:
                 UpdateLevelUp();
@@ -136,6 +248,9 @@ public partial class Game1 : Game
                 break;
             case GameState.YouWin:
                 UpdateYouWin();
+                break;
+            case GameState.Paused:
+                UpdatePaused();
                 break;
         }
 

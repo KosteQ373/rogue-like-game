@@ -66,33 +66,44 @@ public partial class Game1
             }
         }
 
-        // Draw Basic Enemies
-        var basics = _basicEnemyPool.Items;
-        for (int i = 0; i < basics.Count; i++)
+        // Y-sorted rysowanie wrogów i gracza (zero GC allocations)
+        if (_currentState == GameState.Playing || _currentState == GameState.BossFight)
         {
-            if (basics[i].IsActive)
-            {
-                DrawEnemyEntity(basics[i], GetEnemyColor(basics[i]), gameTime);
-            }
-        }
+            _ySortedEnemies.Clear();
 
-        // Draw Tank Enemies
-        var tanks = _tankEnemyPool.Items;
-        for (int i = 0; i < tanks.Count; i++)
-        {
-            if (tanks[i].IsActive)
-            {
-                DrawEnemyEntity(tanks[i], GetEnemyColor(tanks[i]), gameTime);
-            }
-        }
+            var basics = _basicEnemyPool.Items;
+            for (int i = 0; i < basics.Count; i++)
+                if (basics[i].IsActive) _ySortedEnemies.Add(basics[i]);
 
-        // Draw Fast Enemies
-        var fasts = _fastEnemyPool.Items;
-        for (int i = 0; i < fasts.Count; i++)
-        {
-            if (fasts[i].IsActive)
+            var tanks = _tankEnemyPool.Items;
+            for (int i = 0; i < tanks.Count; i++)
+                if (tanks[i].IsActive) _ySortedEnemies.Add(tanks[i]);
+
+            var fasts = _fastEnemyPool.Items;
+            for (int i = 0; i < fasts.Count; i++)
+                if (fasts[i].IsActive) _ySortedEnemies.Add(fasts[i]);
+
+            _ySortedEnemies.Sort(EnemyYComparer);
+
+            bool playerDrawn = false;
+            for (int i = 0; i < _ySortedEnemies.Count; i++)
             {
-                DrawEnemyEntity(fasts[i], GetEnemyColor(fasts[i]), gameTime);
+                var enemy = _ySortedEnemies[i];
+
+                // Gdy trafimy na pierwszego wroga poniżej gracza, rysujemy najpierw gracza
+                if (!playerDrawn && enemy.Position.Y > _player.Position.Y)
+                {
+                    DrawPlayerWithBow(gameTime, mouseState);
+                    playerDrawn = true;
+                }
+
+                DrawEnemyEntity(enemy, new Color(190, 190, 200), gameTime);
+            }
+
+            // Jeśli żaden wróg nie był poniżej gracza (lub brak wrogów), narysuj gracza na końcu
+            if (!playerDrawn)
+            {
+                DrawPlayerWithBow(gameTime, mouseState);
             }
         }
 
@@ -105,7 +116,7 @@ public partial class Game1
         // Draw Active Boss (if in BossFight)
         if (_currentState == GameState.BossFight && _activeBoss != null && _activeBoss.IsActive)
         {
-            Color bossBaseCol = new Color(225, 25, 55);
+            Color bossBaseCol = new Color(180, 55, 75);
             Color bossCol = _activeBoss.KnockbackTimer > 0f ? Color.Lerp(bossBaseCol, Color.Yellow, 0.6f) : bossBaseCol;
             if (_activeBoss.IsFrozen)
             {
@@ -118,7 +129,7 @@ public partial class Game1
             }
 
             DrawRect(_activeBoss.Position, (int)_activeBoss.Size, (int)_activeBoss.Size, bossCol);
-            DrawRect(_activeBoss.Position, (int)(_activeBoss.Size * 0.7f), (int)(_activeBoss.Size * 0.7f), new Color(160, 15, 35));
+            DrawRect(_activeBoss.Position, (int)(_activeBoss.Size * 0.7f), (int)(_activeBoss.Size * 0.7f), new Color(120, 40, 55));
 
             if (_activeBoss.IsFrozen)
             {
@@ -145,27 +156,32 @@ public partial class Game1
             }
         }
 
-        // Draw Bullets
+        // Draw Bullets jako strzały z rotacją
         var bullets = _bulletPool.Items;
         for (int i = 0; i < bullets.Count; i++)
         {
             if (bullets[i].IsActive)
             {
-                if (_player.HasFireBullets)
-                {
-                    DrawRect(bullets[i].Position, 8, 8, new Color(255, 100, 20));
-                    DrawRect(bullets[i].Position, 4, 4, new Color(255, 230, 80));
-                }
-                else if (_player.HasFreezeBullets)
-                {
-                    DrawRect(bullets[i].Position, 8, 8, new Color(40, 180, 255));
-                    DrawRect(bullets[i].Position, 4, 4, new Color(220, 245, 255));
-                }
-                else
-                {
-                    DrawRect(bullets[i].Position, 8, 8, Color.Yellow);
-                    DrawRect(bullets[i].Position, 4, 4, Color.White);
-                }
+                Texture2D arrowTex = _player.HasFireBullets
+                    ? _arrowBurnTexture
+                    : _player.HasFreezeBullets
+                        ? _arrowFrozenTexture
+                        : _arrowTexture;
+
+                float rotation = (float)Math.Atan2(bullets[i].Velocity.Y, bullets[i].Velocity.X);
+                Vector2 arrowOrigin = new Vector2(arrowTex.Width / 2f, arrowTex.Height / 2f);
+
+                _spriteBatch.Draw(
+                    arrowTex,
+                    bullets[i].Position,
+                    null,
+                    Color.White,
+                    rotation,
+                    arrowOrigin,
+                    1.5f,
+                    SpriteEffects.None,
+                    0f
+                );
             }
         }
 
@@ -185,11 +201,6 @@ public partial class Game1
                 DrawRect(new Vector2(px, py), 4, 4, auraColor);
             }
         }
-
-        // Draw Player
-        Color playerColor = _player.InvulnerabilityTimer > 0f ? Color.Cyan : new Color(50, 220, 100);
-        DrawRect(_player.Position, 28, 28, playerColor);
-        DrawRect(_player.Position, 16, 16, Color.White * 0.8f);
 
         // Draw Damage Numbers
         var damageNumbers = _damageNumberPool.Items;
@@ -244,6 +255,9 @@ public partial class Game1
             case GameState.YouWin:
                 DrawYouWinScreen(screenWidth, screenHeight, uiScale, mouseState);
                 break;
+            case GameState.Paused:
+                DrawPauseMenuScreen(screenWidth, screenHeight, uiScale, mouseState);
+                break;
         }
 
         _spriteBatch.End();
@@ -251,10 +265,105 @@ public partial class Game1
         base.Draw(gameTime);
     }
 
+    // Rysowanie gracza z łukiem — wywoływane z pętli Y-sorted
+    private void DrawPlayerWithBow(GameTime gameTime, MouseState mouseState)
+    {
+        float viewHalfW = GraphicsDevice.Viewport.Width / 2f;
+        float viewHalfH = GraphicsDevice.Viewport.Height / 2f;
+        Vector2 cameraOffset = _camera.GetOffset(viewHalfW, viewHalfH);
+        Vector2 worldMousePos = new Vector2(mouseState.X, mouseState.Y) - cameraOffset;
+
+        Vector2 aimDir = worldMousePos - _player.Position;
+        float aimAngle = (float)Math.Atan2(aimDir.Y, aimDir.X);
+
+        // Eliptyczna pozycja łuku — spłaszczenie w osi Y dla perspektywy 2.5D
+        float offsetX = (float)Math.Cos(aimAngle) * 20f;
+        float offsetY = (float)Math.Sin(aimAngle) * 12f + 4f;
+        Vector2 bowPos = _player.Position + new Vector2(offsetX, offsetY);
+
+        // Pivot na środku łuku
+        Vector2 bowOrigin = new Vector2(_bowTexture.Width / 2f, _bowTexture.Height / 2f);
+
+        // Flip łuku — jeśli gracz celuje w lewo, odwróć pionowo
+        SpriteEffects bowEffect = worldMousePos.X < _player.Position.X ? SpriteEffects.FlipVertically : SpriteEffects.None;
+
+        // Z-sorting — jeśli celowanie w górę, łuk za graczem; w przeciwnym razie na wierzchu
+        bool drawBowFirst = aimDir.Y < -0.1f;
+
+        if (drawBowFirst)
+        {
+            // Łuk najpierw (za graczem)
+            _spriteBatch.Draw(
+                _bowTexture,
+                bowPos,
+                null,
+                Color.White,
+                aimAngle,
+                bowOrigin,
+                1.5f,
+                bowEffect,
+                0f
+            );
+
+            // Gracz na wierzchu
+            if (_player.InvulnerabilityTimer > 0f)
+            {
+                int flash = (int)(gameTime.TotalGameTime.TotalMilliseconds / 80f) % 2;
+                if (flash == 0)
+                {
+                    _player.Draw(_spriteBatch);
+                }
+            }
+            else
+            {
+                _player.Draw(_spriteBatch);
+            }
+        }
+        else
+        {
+            // Gracz najpierw
+            if (_player.InvulnerabilityTimer > 0f)
+            {
+                int flash = (int)(gameTime.TotalGameTime.TotalMilliseconds / 80f) % 2;
+                if (flash == 0)
+                {
+                    _player.Draw(_spriteBatch);
+                }
+            }
+            else
+            {
+                _player.Draw(_spriteBatch);
+            }
+
+            // Łuk na wierzchu
+            _spriteBatch.Draw(
+                _bowTexture,
+                bowPos,
+                null,
+                Color.White,
+                aimAngle,
+                bowOrigin,
+                1.5f,
+                bowEffect,
+                0f
+            );
+        }
+    }
+
     private void DrawArenaBackground()
     {
-        // 2000x2000 arena background
-        DrawRect(new Vector2(ArenaWidth / 2f, ArenaHeight / 2f), (int)ArenaWidth, (int)ArenaHeight, new Color(34, 34, 40));
+        // Kafelkowana podłoga z tekstur kamiennych płyt
+        Color stoneTint = new Color(40, 42, 48);
+
+        for (int y = 0; y < FloorRows; y++)
+        {
+            for (int x = 0; x < FloorCols; x++)
+            {
+                int texIndex = _floorMap[x, y];
+                Vector2 tilePos = new Vector2(x * TileSize, y * TileSize);
+                _spriteBatch.Draw(_floorTileTextures[texIndex], tilePos, stoneTint);
+            }
+        }
 
         // Arena outer border
         int borderW = 8;
@@ -1092,7 +1201,47 @@ public partial class Game1
             col = Color.Lerp(col, new Color(255, 95, 20), 0.45f + 0.3f * pulse);
         }
 
-        DrawRect(enemy.Position, (int)enemy.Size, (int)enemy.Size, col);
+        // Rysuj animację sprite — wybierz na podstawie stanu wroga
+        SpriteAnimation? currentAnimation;
+        if (enemy.State == EnemyState.Dead)
+        {
+            currentAnimation = enemy.DeathAnimation;
+        }
+        else if (enemy.State == EnemyState.Attack)
+        {
+            currentAnimation = enemy.AttackAnimation;
+        }
+        else if (enemy.KnockbackTimer > 0f)
+        {
+            currentAnimation = enemy.HurtAnimation;
+        }
+        else
+        {
+            currentAnimation = enemy.WalkAnimation;
+        }
+
+        if (currentAnimation != null)
+        {
+            Vector2 origin = new Vector2(currentAnimation.FrameWidth / 2f, currentAnimation.FrameHeight / 2f);
+            float scale = enemy is TankEnemy ? 2.7f : 2.4f;
+
+            _spriteBatch.Draw(
+                currentAnimation.Texture,
+                enemy.Position,
+                currentAnimation.SourceRectangle,
+                col,
+                0f,
+                origin,
+                scale,
+                enemy.CurrentSpriteEffects,
+                0f
+            );
+        }
+        else
+        {
+            // Fallback do prostokąta jeśli animacja nie jest zainicjalizowana
+            DrawRect(enemy.Position, (int)enemy.Size, (int)enemy.Size, col);
+        }
 
         // Freeze visuals: ice crystals at corners
         if (enemy.IsFrozen)
@@ -1225,5 +1374,50 @@ public partial class Game1
 
             DrawRect(p.Position, p.Size, p.Size, col);
         }
+    }
+
+    private void DrawPauseMenuScreen(int screenWidth, int screenHeight, float uiScale, MouseState mouseState)
+    {
+        // Półprzezroczyste tło przyciemniające grę
+        _spriteBatch.Draw(_pixel, new Rectangle(0, 0, screenWidth, screenHeight), Color.Black * 0.7f);
+
+        int panelW = (int)(400f * uiScale);
+        int panelH = (int)(320f * uiScale);
+        int panelX = (screenWidth - panelW) / 2;
+        int panelY = (screenHeight - panelH) / 2;
+
+        Rectangle panelRect = new Rectangle(panelX, panelY, panelW, panelH);
+        DrawPanel(panelRect, new Color(20, 22, 30, 245), new Color(55, 65, 85), Math.Max(2, (int)(3f * uiScale)));
+
+        // Tytuł
+        string title = "PAUSED";
+        float titleScale = MathHelper.Clamp(uiScale * 1.6f, 1.1f, 2.5f);
+        Vector2 titleSize = MeasureText(title, titleScale);
+        DrawText(title, new Vector2(panelX + (panelW - (int)titleSize.X) / 2f, panelY + (int)(20f * uiScale)), new Color(255, 215, 60), titleScale);
+
+        Point mousePos = new Point(mouseState.X, mouseState.Y);
+
+        int btnW = (int)(320f * uiScale);
+        int btnH = (int)(56f * uiScale);
+        int btnGap = (int)(14f * uiScale);
+        int startBtnY = panelY + (int)(80f * uiScale);
+
+        Rectangle resumeRect = new Rectangle(panelX + (panelW - btnW) / 2, startBtnY, btnW, btnH);
+        Rectangle settingsRect = new Rectangle(panelX + (panelW - btnW) / 2, startBtnY + btnH + btnGap, btnW, btnH);
+        Rectangle mainMenuRect = new Rectangle(panelX + (panelW - btnW) / 2, startBtnY + (btnH + btnGap) * 2, btnW, btnH);
+
+        bool resumeHover = resumeRect.Contains(mousePos);
+        bool settingsHover = settingsRect.Contains(mousePos);
+        bool mainMenuHover = mainMenuRect.Contains(mousePos);
+
+        DrawMenuButton("1. RESUME", resumeRect, resumeHover, new Color(40, 180, 230), uiScale);
+        DrawMenuButton("2. SETTINGS", settingsRect, settingsHover, new Color(255, 195, 50), uiScale);
+        DrawMenuButton("3. MAIN MENU", mainMenuRect, mainMenuHover, new Color(235, 45, 60), uiScale);
+
+        // Podpowiedź
+        string hint = "PRESS [ESC] TO RESUME";
+        float hintScale = MathHelper.Clamp(uiScale * 0.7f, 0.5f, 1f);
+        Vector2 hintSize = MeasureText(hint, hintScale);
+        DrawText(hint, new Vector2(panelX + (panelW - (int)hintSize.X) / 2f, panelY + panelH - (int)(30f * uiScale)), new Color(120, 130, 150), hintScale);
     }
 }

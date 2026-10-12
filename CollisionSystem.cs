@@ -200,7 +200,9 @@ public static class CollisionSystem
 
     private static void HandleEnemyDeath(Enemy enemy, ObjectPool<XpGem> xpPool, Action<Vector2, float, Color>? onDeath)
     {
-        enemy.IsActive = false;
+        // Przejście w stan śmierci — animacja zostanie odtworzona, IsActive=false po jej zakończeniu
+        enemy.State = EnemyState.Dead;
+        enemy.DeathAnimation?.Reset();
         onDeath?.Invoke(enemy.Position, enemy.Size, GetEnemyColorFromSize(enemy.Size));
 
         for (int g = 0; g < enemy.XpDropCount; g++)
@@ -219,34 +221,139 @@ public static class CollisionSystem
 
     private static void ResolveEnemyPlayerCollisions<T>(Player player, List<T> enemies) where T : Enemy
     {
-        float playerRadiusSq = 14f * 14f;
+        float playerRadius = 14f;
+        float swordReach = 85f; // Realny zasięg zamachu miecza orka
+        float swordReachSq = swordReach * swordReach;
+
         for (int i = 0; i < enemies.Count; i++)
         {
             var enemy = enemies[i];
             if (!enemy.IsActive) continue;
 
-            float enemyRadius = enemy.Size * 0.5f;
-            float radiusSum = 14f + enemyRadius;
+            // Wrogowie w stanie Dead nie zadają obrażeń i nie kolizjonują z graczem
+            if (enemy.State == EnemyState.Dead) continue;
 
+            float enemyRadius = enemy.Size * 0.5f;
+            float radiusSum = playerRadius + enemyRadius;
             float distSq = Vector2.DistanceSquared(enemy.Position, player.Position);
+
+            // Fizyczna kolizja ciał — tylko odpychanie gracza od wroga
             if (distSq < radiusSum * radiusSum)
             {
-                if (enemy.AttackCooldown <= 0f)
+                Vector2 diff = player.Position - enemy.Position;
+                float dist = MathF.Sqrt(distSq);
+
+                if (dist > 0.001f)
                 {
-                    if (player.HasPhoenixProtocol && !player.PhoenixProtocolUsed)
+                    float overlap = radiusSum - dist;
+                    Vector2 pushDir = diff / dist;
+                    player.Position += pushDir * overlap;
+                }
+            }
+
+            // Obrażenia od ciosu miecza — osobna weryfikacja poza blokiem kolizji ciał
+            // Wróg musi być w stanie Attack, flaga HitPlayerThisAttack musi być ustawiona
+            // i gracz musi być w zasięgu miecza (85 px, a nie ~28 px od kolizji ciał)
+            if (enemy.State == EnemyState.Attack && enemy.HitPlayerThisAttack && distSq <= swordReachSq)
+            {
+                // Nie zadawaj obrażeń jeśli gracz ma nieśmiertelność
+                if (player.InvulnerabilityTimer > 0f) continue;
+
+                if (player.HasPhoenixProtocol && !player.PhoenixProtocolUsed)
+                {
+                    if (player.CurrentHealth - enemy.Damage <= 0f)
                     {
-                        if (player.CurrentHealth - enemy.Damage <= 0f)
+                        player.PhoenixProtocolUsed = true;
+                        player.CurrentHealth = player.MaxHealth.Value * 0.5f;
+                        player.InvulnerabilityTimer = 2f;
+                        enemy.ConsumeHit(); // Zużyj flagę, aby nie zadać obrażeń ponownie
+                        continue;
+                    }
+                }
+
+                player.TakeDamage(enemy.Damage);
+                enemy.ConsumeHit(); // Zużyj flagę natychmiast — jeden atak = jedno trafienie
+            }
+        }
+    }
+
+    // Odsuwanie wrogów od siebie nawzajem — optymalizacja przez SpatialGrid
+    // HashSet przechowuje już przetworzone wrogi — unikamy podwójnych sprawdzeń par
+    private static readonly HashSet<Enemy> _resolvedEnemies = new(100);
+
+    private static void ResolveEnemyEnemyCollisions(List<Enemy> allEnemies, SpatialGrid spatialGrid)
+    {
+        // Dwie iteracje kolizji w każdej klatce — pierwsza rozpycha najbardziej nachodzące pary,
+        // druga poprawia pozycje po pierwszej iteracji, gdy wrogowie nadal się przenikają
+        for (int iteration = 0; iteration < 2; iteration++)
+        {
+            spatialGrid.Clear();
+            foreach (var e in allEnemies)
+            {
+                if (e.IsActive)
+                {
+                    spatialGrid.Add(e);
+                }
+            }
+
+            _resolvedEnemies.Clear();
+
+            var nearbyBuffer = new List<Enemy>(50);
+            int count = allEnemies.Count;
+            for (int i = 0; i < count; i++)
+            {
+                var a = allEnemies[i];
+                if (!a.IsActive) continue;
+
+                // Skaczymy, jeśli ten wróg już został przetworzony jako 'b' w innej parze
+                if (_resolvedEnemies.Contains(a)) continue;
+
+                spatialGrid.GetNearby(a, nearbyBuffer);
+
+                // Promień kolizji — dopasowany do skali 3x (orkowie nachodzą ramionami, ale nie zlewają się)
+                float aRadius = 32f;
+                int nearbyCount = nearbyBuffer.Count;
+                for (int k = 0; k < nearbyCount; k++)
+                {
+                    var b = nearbyBuffer[k];
+                    if (!b.IsActive) continue;
+                    if (ReferenceEquals(a, b)) continue;
+
+                    // Pomiń wrogów w stanie Attack — wykonujący cios nie są spychani przez tłum
+                    if (a.State == EnemyState.Attack || b.State == EnemyState.Attack) continue;
+
+                    float bRadius = 32f;
+                    float radiusSum = aRadius + bRadius;
+                    float distSq = Vector2.DistanceSquared(a.Position, b.Position);
+
+                    if (distSq < radiusSum * radiusSum)
+                    {
+                        float dist = MathF.Sqrt(distSq);
+                        float overlap = radiusSum - dist;
+
+                        Vector2 pushDir;
+                        // Zabezpieczenie przed dzieleniem przez zero — losowy kierunek gdy wrogowie zlewają się w punkt
+                        if (dist < 0.1f)
                         {
-                            player.PhoenixProtocolUsed = true;
-                            player.CurrentHealth = player.MaxHealth.Value * 0.5f;
-                            player.InvulnerabilityTimer = 2f;
-                            enemy.AttackCooldown = 0.5f;
-                            continue;
+                            pushDir = new Vector2(
+                                (float)(System.Random.Shared.NextDouble() - 0.5f),
+                                (float)(System.Random.Shared.NextDouble() - 0.5f)
+                            );
+                            if (pushDir.LengthSquared() > 0.0001f) pushDir.Normalize();
                         }
+                        else
+                        {
+                            pushDir = (a.Position - b.Position) / dist;
+                        }
+
+                        // Limit przesunięcia — maks 8 px na klatkę, zero teleportów
+                        float pushAmount = Math.Min(overlap * 0.3f, 8.0f);
+                        a.Position += pushDir * pushAmount;
+                        b.Position -= pushDir * pushAmount;
                     }
 
-                    player.TakeDamage(enemy.Damage);
-                    enemy.AttackCooldown = 0.5f;
+                    // Oznaczamy 'b' jako przetworzone, aby nie sprawdzać pary (b, a) ponownie
+                    _resolvedEnemies.Add(b);
                 }
             }
         }
@@ -290,6 +397,7 @@ public static class CollisionSystem
         ObjectPool<TankEnemy> tankPool,
         ObjectPool<FastEnemy> fastPool,
         ObjectPool<XpGem> xpPool,
+        SpatialGrid spatialGrid,
         float dt,
         out bool leveledUpOut,
         Action<Vector2, float, bool, Color?>? onDamage = null,
@@ -362,11 +470,30 @@ public static class CollisionSystem
 
         if (boss.IsActive)
         {
+            float playerRadius = 14f;
+            float bossRadius = boss.Size * 0.5f;
+            float radiusSum = playerRadius + bossRadius;
             float playerBossDistSq = Vector2.DistanceSquared(boss.Position, player.Position);
-            if (playerBossDistSq < (14f + boss.Size * 0.5f) * (14f + boss.Size * 0.5f) && boss.AttackCooldown <= 0f)
+
+            if (playerBossDistSq < radiusSum * radiusSum)
             {
-                player.TakeDamage(boss.Damage);
-                boss.AttackCooldown = 0.5f;
+                // Odsuwanie gracza od bossa — korekta pozycji
+                Vector2 diff = player.Position - boss.Position;
+                float dist = MathF.Sqrt(playerBossDistSq);
+
+                if (dist > 0.001f)
+                {
+                    float overlap = radiusSum - dist;
+                    Vector2 pushDir = diff / dist;
+                    player.Position += pushDir * overlap;
+                }
+
+                // Zadawanie obrażeń
+                if (boss.AttackCooldown <= 0f)
+                {
+                    player.TakeDamage(boss.Damage);
+                    boss.AttackCooldown = 0.5f;
+                }
             }
         }
 

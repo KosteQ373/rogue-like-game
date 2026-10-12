@@ -7,7 +7,7 @@ namespace rogue_like;
 
 public partial class Game1
 {
-    private void UpdatePlayerAndCamera(float dt)
+    private void UpdatePlayerAndCamera(GameTime gameTime, float dt)
     {
         _player.Update(dt);
 
@@ -19,11 +19,38 @@ public partial class Game1
         if (kState.IsKeyDown(Keys.A) || kState.IsKeyDown(Keys.Left)) moveDir.X -= 1f;
         if (kState.IsKeyDown(Keys.D) || kState.IsKeyDown(Keys.Right)) moveDir.X += 1f;
 
-        if (moveDir.LengthSquared() > 0f)
+        // Ruch i animacja gracza
+        _player.HandleMovement(moveDir, dt * _player.SpeedMultiplier);
+
+        // Kierunek korpusu zależy od kursora myszy, nie od klawiszy ruchu
+        float viewHalfW = GraphicsDevice.Viewport.Width / 2f;
+        float viewHalfH = GraphicsDevice.Viewport.Height / 2f;
+        Vector2 cameraOffset = _camera.GetOffset(viewHalfW, viewHalfH);
+        Vector2 screenMousePos = new Vector2(Mouse.GetState().X, Mouse.GetState().Y);
+        Vector2 worldMousePos = screenMousePos - cameraOffset;
+        _player.UpdateFacing(worldMousePos);
+
+        // PlayBackwards — jeśli gracz porusza się w kierunku przeciwnym do celowania
+        if (_player.State == PlayerState.Walk && moveDir != Vector2.Zero)
         {
-            moveDir.Normalize();
-            _player.Position += moveDir * _player.MoveSpeed.Value * _player.SpeedMultiplier * dt;
+            Vector2 aimDir = worldMousePos - _player.Position;
+            if (aimDir.LengthSquared() > 0.001f)
+            {
+                aimDir.Normalize();
+                float dot = Vector2.Dot(Vector2.Normalize(moveDir), aimDir);
+                _player.SetWalkBackwards(dot < -0.2f);
+            }
+            else
+            {
+                _player.SetWalkBackwards(false);
+            }
         }
+        else
+        {
+            _player.SetWalkBackwards(false);
+        }
+
+        _player.UpdateAnimation(gameTime);
 
         // [TESTOWE NARZĘDZIE] Naciśnij "L", aby natychmiast awansować na następny poziom.
         // USUŃ lub zakomentuj przed wydaniem finalnej wersji gry.
@@ -234,153 +261,164 @@ public partial class Game1
         }
     }
 
-    private void UpdatePlaying(float dt)
-{
-    UpdatePlayerAndCamera(dt);
-    UpdatePlayerShooting(dt);
-
-    // Spawn enemies outside player's field of view
-    _survivalTime += dt;
-    _spawnTempoTime += dt;
-    int intervalsPassed = (int)(_spawnTempoTime / 15f);
-    _spawnInterval = Math.Max(0.3f, 2.5f - intervalsPassed * 0.15f);
-
-    _spawnTimer += dt;
-    if (_spawnTimer >= _spawnInterval)
+    private void UpdatePlaying(GameTime gameTime, float dt)
     {
-        _spawnTimer = 0f;
-
-        double roll = _rand.NextDouble();
-        Enemy enemy;
-        if (roll < 0.6)
+        if (IsKeyJustPressed(Keys.Escape))
         {
-            enemy = _basicEnemyPool.Get();
-        }
-        else if (roll < 0.8)
-        {
-            enemy = _fastEnemyPool.Get();
-        }
-        else
-        {
-            enemy = _tankEnemyPool.Get();
+            _stateBeforePause = GameState.Playing;
+            _currentState = GameState.Paused;
+            return;
         }
 
-        enemy.Init(_player.Level, _hpMultiplier, _speedMultiplier, _damageMultiplier);
+        UpdatePlayerAndCamera(gameTime, dt);
+        UpdatePlayerShooting(dt);
 
-        float angle = (float)(_rand.NextDouble() * Math.PI * 2);
-        float dist = 750f + (float)(_rand.NextDouble() * 200f); 
-        Vector2 spawnPos = _camera.Position + new Vector2((float)Math.Cos(angle), (float)Math.Sin(angle)) * dist;
-        
-        // Clamp spawn inside arena
-        spawnPos.X = MathHelper.Clamp(spawnPos.X, 20f, ArenaWidth - 20f);
-        spawnPos.Y = MathHelper.Clamp(spawnPos.Y, 20f, ArenaHeight - 20f);
-        enemy.Position = spawnPos;
-    }
+        // Spawn enemies outside player's field of view
+        _survivalTime += dt;
+        _spawnTempoTime += dt;
+        int intervalsPassed = (int)(_spawnTempoTime / 15f);
+        _spawnInterval = Math.Max(0.3f, 2.5f - intervalsPassed * 0.15f);
 
-    // Zbierz aktywnych wrogów dla homingu
-    var basics = _basicEnemyPool.Items;
-    var tanks = _tankEnemyPool.Items;
-    var fasts = _fastEnemyPool.Items;
-    UpdateBullets(dt);
-    UpdateDamageNumbers(dt);
-    UpdateDeathEffects(dt);
-    UpdateExplosionEffects(dt);
+        _spawnTimer += dt;
+        if (_spawnTimer >= _spawnInterval)
+        {
+            _spawnTimer = 0f;
 
-    // Time Dilation — spowolnienie wrogów w zasięgu gracza
-    float enemySpeedMultiplier = 1f;
-    if (_player.HasTimeSlow)
-    {
-        enemySpeedMultiplier = 0.6f; // 40% spowolnienie
-    }
+            double roll = _rand.NextDouble();
+            Enemy enemy;
+            if (roll < 0.6)
+            {
+                enemy = _basicEnemyPool.Get();
+            }
+            else if (roll < 0.8)
+            {
+                enemy = _fastEnemyPool.Get();
+            }
+            else
+            {
+                enemy = _tankEnemyPool.Get();
+            }
 
-    // Regeneration — leczenie 3 HP na sekundę
-    if (_player.RegenerationTimer > 0f)
-    {
-        _player.Heal(3f * dt);
-    }
+            enemy.Init(_player.Level, _hpMultiplier, _speedMultiplier, _damageMultiplier);
 
-    // --- ZMIANY DLA HORDY ZACZYNAJĄ SIĘ TUTAJ ---
+            float angle = (float)(_rand.NextDouble() * Math.PI * 2);
+            float dist = 750f + (float)(_rand.NextDouble() * 200f); 
+            Vector2 spawnPos = _camera.Position + new Vector2((float)Math.Cos(angle), (float)Math.Sin(angle)) * dist;
+            
+            // Clamp spawn inside arena
+            spawnPos.X = MathHelper.Clamp(spawnPos.X, 20f, ArenaWidth - 20f);
+            spawnPos.Y = MathHelper.Clamp(spawnPos.Y, 20f, ArenaHeight - 20f);
+            enemy.Position = spawnPos;
+        }
 
-    // 1. Czyścimy siatkę i wrzucamy do niej wszystkich aktywnych wrogów
-    _spatialGrid.Clear();
-    for (int i = 0; i < basics.Count; i++) if (basics[i].IsActive) _spatialGrid.Add(basics[i]);
-    for (int i = 0; i < tanks.Count; i++) if (tanks[i].IsActive) _spatialGrid.Add(tanks[i]);
-    for (int i = 0; i < fasts.Count; i++) if (fasts[i].IsActive) _spatialGrid.Add(fasts[i]);
+        // Zbierz aktywnych wrogów dla homingu
+        var basics = _basicEnemyPool.Items;
+        var tanks = _tankEnemyPool.Items;
+        var fasts = _fastEnemyPool.Items;
+        UpdateBullets(dt);
+        UpdateDamageNumbers(dt);
+        UpdateDeathEffects(dt);
+        UpdateExplosionEffects(dt);
 
-    // 2. Update Basics
-    for (int i = 0; i < basics.Count; i++)
-    {
-        var e = basics[i];
-        if (!e.IsActive) continue;
-        float sm = enemySpeedMultiplier;
+        // Time Dilation — spowolnienie wrogów w zasięgu gracza
+        float enemySpeedMultiplier = 1f;
         if (_player.HasTimeSlow)
         {
-            float distSq = Vector2.DistanceSquared(e.Position, _player.Position);
-            if (distSq > 300f * 300f) sm = 1f;
+            enemySpeedMultiplier = 0.6f; // 40% spowolnienie
         }
-        
-        // Pobieramy sąsiadów z siatki i przekazujemy do Update
-        _spatialGrid.GetNearby(e, _nearbyEnemiesBuffer);
-        e.Update(dt, _player.Position, _xpPool, SpawnDamageNumber, SpawnDeathEffect, sm, _nearbyEnemiesBuffer);
-    }
 
-    // 3. Update Tanks
-    for (int i = 0; i < tanks.Count; i++)
-    {
-        var e = tanks[i];
-        if (!e.IsActive) continue;
-        float sm = enemySpeedMultiplier;
-        if (_player.HasTimeSlow)
+        // Regeneration — leczenie 3 HP na sekundę
+        if (_player.RegenerationTimer > 0f)
         {
-            float distSq = Vector2.DistanceSquared(e.Position, _player.Position);
-            if (distSq > 300f * 300f) sm = 1f;
+            _player.Heal(3f * dt);
         }
-        
-        // Pobieramy sąsiadów z siatki i przekazujemy do Update
-        _spatialGrid.GetNearby(e, _nearbyEnemiesBuffer);
-        e.Update(dt, _player.Position, _xpPool, SpawnDamageNumber, SpawnDeathEffect, sm, _nearbyEnemiesBuffer);
-    }
 
-    // 4. Update Fasts
-    for (int i = 0; i < fasts.Count; i++)
-    {
-        var e = fasts[i];
-        if (!e.IsActive) continue;
-        float sm = enemySpeedMultiplier;
-        if (_player.HasTimeSlow)
+        // --- ZMIANY DLA HORDY ZACZYNAJĄ SIĘ TUTAJ ---
+
+        // 1. Czyścimy siatkę i wrzucamy do niej wszystkich aktywnych wrogów
+        _spatialGrid.Clear();
+        for (int i = 0; i < basics.Count; i++) if (basics[i].IsActive) _spatialGrid.Add(basics[i]);
+        for (int i = 0; i < tanks.Count; i++) if (tanks[i].IsActive) _spatialGrid.Add(tanks[i]);
+        for (int i = 0; i < fasts.Count; i++) if (fasts[i].IsActive) _spatialGrid.Add(fasts[i]);
+
+        // 2. Update Basics
+        for (int i = 0; i < basics.Count; i++)
         {
-            float distSq = Vector2.DistanceSquared(e.Position, _player.Position);
-            if (distSq > 300f * 300f) sm = 1f;
+            var e = basics[i];
+            if (!e.IsActive) continue;
+            float sm = enemySpeedMultiplier;
+            if (_player.HasTimeSlow)
+            {
+                float distSq = Vector2.DistanceSquared(e.Position, _player.Position);
+                if (distSq > 300f * 300f) sm = 1f;
+            }
+            
+            // Pobieramy sąsiadów z siatki i przekazujemy do Update
+            _spatialGrid.GetNearby(e, _nearbyEnemiesBuffer);
+            e.Update(dt, _player.Position, _xpPool, SpawnDamageNumber, SpawnDeathEffect, sm, _nearbyEnemiesBuffer);
+            e.UpdateAnimations(gameTime, _player.Position);
         }
-        
-        // Pobieramy sąsiadów z siatki i przekazujemy do Update
-        _spatialGrid.GetNearby(e, _nearbyEnemiesBuffer);
-        e.Update(dt, _player.Position, _xpPool, SpawnDamageNumber, SpawnDeathEffect, sm, _nearbyEnemiesBuffer);
-    }
 
-    // --- KONIEC ZMIAN DLA HORDY ---
+        // 3. Update Tanks
+        for (int i = 0; i < tanks.Count; i++)
+        {
+            var e = tanks[i];
+            if (!e.IsActive) continue;
+            float sm = enemySpeedMultiplier;
+            if (_player.HasTimeSlow)
+            {
+                float distSq = Vector2.DistanceSquared(e.Position, _player.Position);
+                if (distSq > 300f * 300f) sm = 1f;
+            }
+            
+            // Pobieramy sąsiadów z siatki i przekazujemy do Update
+            _spatialGrid.GetNearby(e, _nearbyEnemiesBuffer);
+            e.Update(dt, _player.Position, _xpPool, SpawnDamageNumber, SpawnDeathEffect, sm, _nearbyEnemiesBuffer);
+            e.UpdateAnimations(gameTime, _player.Position);
+        }
 
-    // Resolve Collisions
-    CollisionSystem.ResolveCollisions(_player, _bulletPool, _basicEnemyPool, _tankEnemyPool, _fastEnemyPool, _xpPool, dt, out bool leveledUp, SpawnDamageNumber, SpawnDeathEffect, SpawnExplosionEffect);
-    if (leveledUp)
-    {
-        TriggerLevelUp();
-    }
+        // 4. Update Fasts
+        for (int i = 0; i < fasts.Count; i++)
+        {
+            var e = fasts[i];
+            if (!e.IsActive) continue;
+            float sm = enemySpeedMultiplier;
+            if (_player.HasTimeSlow)
+            {
+                float distSq = Vector2.DistanceSquared(e.Position, _player.Position);
+                if (distSq > 300f * 300f) sm = 1f;
+            }
+            
+            // Pobieramy sąsiadów z siatki i przekazujemy do Update
+            _spatialGrid.GetNearby(e, _nearbyEnemiesBuffer);
+            e.Update(dt, _player.Position, _xpPool, SpawnDamageNumber, SpawnDeathEffect, sm, _nearbyEnemiesBuffer);
+            e.UpdateAnimations(gameTime, _player.Position);
+        }
 
-    if (_player.CurrentHealth <= 0f)
-    {
-        _currentState = GameState.GameOver;
-        return;
-    }
+        // --- KONIEC ZMIAN DLA HORDY ---
 
-    // Check 120s boss fight interval
-    _bossTimer += dt;
-    if (_bossTimer >= BossInterval)
-    {
-        _bossTimer = 0f;
-        StartBossFight();
+        // Resolve Collisions
+        CollisionSystem.ResolveCollisions(_player, _bulletPool, _basicEnemyPool, _tankEnemyPool, _fastEnemyPool, _xpPool, _spatialGrid, dt, out bool leveledUp, SpawnDamageNumber, SpawnDeathEffect, SpawnExplosionEffect);
+        if (leveledUp)
+        {
+            TriggerLevelUp();
+        }
+
+        if (_player.CurrentHealth <= 0f)
+        {
+            ClearEffectPools();
+            _currentState = GameState.GameOver;
+            return;
+        }
+
+        // Check 120s boss fight interval
+        _bossTimer += dt;
+        if (_bossTimer >= BossInterval)
+        {
+            _bossTimer = 0f;
+            StartBossFight();
+        }
     }
-}
 
     private void StartBossFight()
     {
@@ -425,14 +463,21 @@ public partial class Game1
         return boss;
     }
 
-    private void UpdateBossFight(float dt)
+    private void UpdateBossFight(GameTime gameTime, float dt)
     {
+        if (IsKeyJustPressed(Keys.Escape))
+        {
+            _stateBeforePause = GameState.BossFight;
+            _currentState = GameState.Paused;
+            return;
+        }
+
         if (_bossBannerTimer > 0f)
         {
             _bossBannerTimer = Math.Max(0f, _bossBannerTimer - dt);
         }
 
-        UpdatePlayerAndCamera(dt);
+        UpdatePlayerAndCamera(gameTime, dt);
         UpdatePlayerShooting(dt);
 
         // Czyścimy siatkę i wrzucamy do niej bossa, żeby pociski mogły go namierzyć (np. dla Homing)
@@ -498,8 +543,17 @@ public partial class Game1
 
         if (_player.CurrentHealth <= 0f)
         {
+            ClearEffectPools();
             _currentState = GameState.GameOver;
         }
+    }
+
+    private void ClearEffectPools()
+    {
+        foreach (var p in _deathParticlePool.Items) p.IsActive = false;
+        foreach (var r in _deathRingPool.Items) r.IsActive = false;
+        foreach (var p in _explosionParticlePool.Items) p.IsActive = false;
+        foreach (var r in _explosionRingPool.Items) r.IsActive = false;
     }
 
     private void OnBossDefeated()
@@ -617,8 +671,11 @@ public partial class Game1
 
     private void ResetGame()
     {
+
         _player = new Player(new Vector2(1000, 1000));
+        _player.InitializeAnimations(_playerIdleTexture, _playerWalkTexture); // <-- TA LINIA
         _camera.Position = _player.Position;
+        
         _survivalTime = 0f;
         _spawnTempoTime = 0f;
         _bossTimer = 0f;
@@ -772,7 +829,15 @@ public partial class Game1
 
         if (IsKeyJustPressed(Keys.Escape) || IsKeyJustPressed(Keys.B) || (clicked && backBtnRect.Contains(mousePos)))
         {
-            _currentState = GameState.MainMenu;
+            if (_settingsFromPause)
+            {
+                _settingsFromPause = false;
+                _currentState = GameState.Paused;
+            }
+            else
+            {
+                _currentState = GameState.MainMenu;
+            }
         }
     }
 
@@ -918,5 +983,48 @@ public partial class Game1
         }
 
         return direction;
+    }
+
+    private void UpdatePaused()
+    {
+        var mouseState = Mouse.GetState();
+        bool clicked = IsMouseClicked();
+        Point mousePos = new Point(mouseState.X, mouseState.Y);
+
+        int screenWidth = GraphicsDevice.PresentationParameters.BackBufferWidth;
+        int screenHeight = GraphicsDevice.PresentationParameters.BackBufferHeight;
+        float uiScale = Math.Min(screenWidth / 1280f, screenHeight / 720f);
+        uiScale = MathHelper.Clamp(uiScale, 0.75f, 2.5f);
+
+        int btnW = (int)(320f * uiScale);
+        int btnH = (int)(56f * uiScale);
+        int btnGap = (int)(14f * uiScale);
+        int panelW = (int)(400f * uiScale);
+        int panelH = (int)(320f * uiScale);
+        int panelX = (screenWidth - panelW) / 2;
+        int panelY = (screenHeight - panelH) / 2;
+
+        int startBtnY = panelY + (int)(80f * uiScale);
+        Rectangle resumeRect = new Rectangle(panelX + (panelW - btnW) / 2, startBtnY, btnW, btnH);
+        Rectangle settingsRect = new Rectangle(panelX + (panelW - btnW) / 2, startBtnY + btnH + btnGap, btnW, btnH);
+        Rectangle mainMenuRect = new Rectangle(panelX + (panelW - btnW) / 2, startBtnY + (btnH + btnGap) * 2, btnW, btnH);
+
+        if (IsKeyJustPressed(Keys.Escape) || IsKeyJustPressed(Keys.D1) || (clicked && resumeRect.Contains(mousePos)))
+        {
+            _currentState = _stateBeforePause;
+            return;
+        }
+
+        if (IsKeyJustPressed(Keys.D2) || (clicked && settingsRect.Contains(mousePos)))
+        {
+            _settingsFromPause = true;
+            _currentState = GameState.Settings;
+            return;
+        }
+
+        if (IsKeyJustPressed(Keys.D3) || (clicked && mainMenuRect.Contains(mousePos)))
+        {
+            _currentState = GameState.MainMenu;
+        }
     }
 }
