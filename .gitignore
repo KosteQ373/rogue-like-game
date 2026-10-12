@@ -1,0 +1,13 @@
+## ignore Visual Studio 2015/2017/2019/2022 option one windows only user settings files
+[Oo]bj/
+[Bb]in/
+
+## ignore Visual Studio Code settings
+.vscode/
+
+## ignore JetBrains Rider settings
+.idea/
+
+## MonoGame Content Pipeline
+Content/bin/
+Content/obj/
